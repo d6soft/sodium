@@ -1,0 +1,24 @@
+# ── OS / Editors ──
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Sensitive dotfiles ──
+.env
+.env.*
+.secret
+.secrets/
+
+# ── Logs / Temp ──
+*.log
+*.tmp
+*.bak
+*.pid
+
+# ── Rust ──
+target/
+*.rs.bk
