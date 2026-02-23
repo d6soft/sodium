@@ -39,10 +39,10 @@ fn expand_tilde(path: &str) -> PathBuf {
 }
 
 fn config_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|d| d.join("sodium").join("sodium.yaml"))
+    dirs::config_dir().map(|d| d.join("sodium").join("sodium.toml"))
 }
 
-/// Load config from ~/.config/sodium/sodium.yaml.
+/// Load config from ~/.config/sodium/sodium.toml.
 /// Creates a default config if the file doesn't exist.
 /// Returns None if config dir can't be determined or file is broken.
 pub fn load_config() -> Option<SodiumConfig> {
@@ -58,12 +58,12 @@ pub fn load_config() -> Option<SodiumConfig> {
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);
         }
-        if let Ok(yaml) = serde_yaml::to_string(&default) {
-            let _ = fs::write(&path, yaml);
+        if let Ok(toml_str) = toml::to_string_pretty(&default) {
+            let _ = fs::write(&path, toml_str);
         }
         return Some(default);
     }
 
     let content = fs::read_to_string(&path).ok()?;
-    serde_yaml::from_str(&content).ok()
+    toml::from_str(&content).ok()
 }

@@ -7,7 +7,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{App, InputMode, MenuItem, Screen};
+use crate::app::{App, CommitReviewState, InputMode, MenuItem, Screen};
 use crate::theme;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -1042,6 +1042,18 @@ fn render_input_overlay(f: &mut Frame, app: &App, area: Rect) {
             let paragraph = Paragraph::new(vec![input_line, help_line]);
             f.render_widget(paragraph, inner);
         }
+        InputMode::CommitReview => {
+            if let Some(ref state) = app.commit_review {
+                render_commit_review_overlay(f, app, state, area);
+            }
+            return;
+        }
+        InputMode::CommitSelect => {
+            if let Some(ref state) = app.commit_review {
+                render_commit_select_overlay(f, app, state, area);
+            }
+            return;
+        }
         InputMode::Select { prompt, options, index, .. } => {
             let item_count = options.len() as u16;
             let height = (item_count + 4).min(area.height.saturating_sub(4));
@@ -1111,4 +1123,296 @@ fn render_input_overlay(f: &mut Frame, app: &App, area: Rect) {
             f.render_widget(help, inner_chunks[1]);
         }
     }
+}
+
+// ── Commit review / select overlays ────────────────────────────────────────
+
+fn status_color(ch: char) -> ratatui::style::Color {
+    match ch {
+        'M' => theme::ORANGE,
+        'A' => theme::GREEN,
+        'D' => theme::RED,
+        '?' => theme::FG_DIM,
+        'C' => theme::RED,
+        'R' => theme::MAGENTA,
+        _ => theme::FG,
+    }
+}
+
+fn status_modifier(ch: char) -> Modifier {
+    if ch == 'C' {
+        Modifier::BOLD
+    } else {
+        Modifier::empty()
+    }
+}
+
+fn render_commit_review_overlay(f: &mut Frame, app: &App, state: &CommitReviewState, area: Rect) {
+    let file_count = state.files.len() as u16;
+    let max_visible = area.height.saturating_sub(8).min(20);
+    let height = (file_count + 6).min(max_visible + 6).max(8);
+    let width = 60u16.min(area.width.saturating_sub(4));
+    let x = (area.width.saturating_sub(width)) / 2;
+    let y = (area.height.saturating_sub(height)) / 2;
+    let popup = Rect::new(x, y, width, height);
+
+    f.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .title(Line::from(vec![
+            Span::styled(" ◎ ", Style::default().fg(theme::CYAN)),
+            Span::styled("COMMIT REVIEW", theme::title_style()),
+            Span::raw(" "),
+        ]))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme::CYAN))
+        .style(Style::default().bg(theme::BG_CARD));
+
+    let inner = block.inner(popup);
+    f.render_widget(block, popup);
+
+    let inner_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(1),    // File list
+            Constraint::Length(1), // Summary
+            Constraint::Length(1), // Help
+        ])
+        .split(inner);
+
+    // File list
+    let visible_height = inner_chunks[0].height as usize;
+    let scroll = if state.cursor >= state.scroll_offset + visible_height {
+        state.cursor.saturating_sub(visible_height - 1)
+    } else {
+        state.scroll_offset
+    };
+
+    let items: Vec<ListItem> = state
+        .files
+        .iter()
+        .enumerate()
+        .skip(scroll)
+        .take(visible_height)
+        .map(|(i, file)| {
+            let is_cursor = i == state.cursor;
+            let arrow = if is_cursor { "▸" } else { " " };
+            let sc = file.status_char;
+            let path_display = truncate_str(&file.path, (width as usize).saturating_sub(22));
+
+            // Right-align stats
+            let ins_str = format!("+{}", file.insertions);
+            let del_str = format!("-{}", file.deletions);
+
+            Line::from(vec![
+                Span::styled(
+                    format!(" {} ", arrow),
+                    Style::default().fg(if is_cursor { theme::CYAN } else { theme::FG_DIM }),
+                ),
+                Span::styled(
+                    format!("{}  ", sc),
+                    Style::default()
+                        .fg(status_color(sc))
+                        .add_modifier(status_modifier(sc) | Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("{:<width$}", path_display, width = (width as usize).saturating_sub(22)),
+                    Style::default().fg(if is_cursor { theme::FG_BRIGHT } else { theme::FG }),
+                ),
+                Span::styled(
+                    format!("{:>5}", ins_str),
+                    Style::default().fg(theme::GREEN),
+                ),
+                Span::styled("  ", Style::default()),
+                Span::styled(
+                    format!("{:>5}", del_str),
+                    Style::default().fg(theme::RED),
+                ),
+            ])
+        })
+        .map(ListItem::new)
+        .collect();
+
+    let list = List::new(items);
+    f.render_widget(list, inner_chunks[0]);
+
+    // Summary line
+    let total_ins: usize = state.files.iter().map(|f| f.insertions).sum();
+    let total_del: usize = state.files.iter().map(|f| f.deletions).sum();
+    let summary = Line::from(vec![
+        Span::styled(
+            format!("  {} files", state.files.len()),
+            Style::default().fg(theme::FG_DIM),
+        ),
+        Span::styled(" — ", Style::default().fg(theme::FG_DIM)),
+        Span::styled(
+            format!("{}(+)", total_ins),
+            Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(" ", Style::default()),
+        Span::styled(
+            format!("{}(-)", total_del),
+            Style::default().fg(theme::RED).add_modifier(Modifier::BOLD),
+        ),
+    ]);
+    f.render_widget(Paragraph::new(summary), inner_chunks[1]);
+
+    // Help line
+    let blink = app.tick % 8 < 6;
+    let help = if blink {
+        Line::from(vec![
+            Span::styled("  [a]", Style::default().fg(theme::CYAN).add_modifier(Modifier::BOLD)),
+            Span::styled(" Add All  ", Style::default().fg(theme::FG_DIM)),
+            Span::styled("[Enter]", Style::default().fg(theme::CYAN).add_modifier(Modifier::BOLD)),
+            Span::styled(" Select files  ", Style::default().fg(theme::FG_DIM)),
+            Span::styled("[Esc]", Style::default().fg(theme::CYAN).add_modifier(Modifier::BOLD)),
+            Span::styled(" Cancel", Style::default().fg(theme::FG_DIM)),
+        ])
+    } else {
+        Line::from(Span::styled(
+            "  [a] Add All  [Enter] Select files  [Esc] Cancel",
+            Style::default().fg(theme::FG_DIM),
+        ))
+    };
+    f.render_widget(Paragraph::new(help), inner_chunks[2]);
+}
+
+fn render_commit_select_overlay(f: &mut Frame, _app: &App, state: &CommitReviewState, area: Rect) {
+    let file_count = state.files.len() as u16;
+    let max_visible = area.height.saturating_sub(8).min(20);
+    let height = (file_count + 6).min(max_visible + 6).max(8);
+    let width = 60u16.min(area.width.saturating_sub(4));
+    let x = (area.width.saturating_sub(width)) / 2;
+    let y = (area.height.saturating_sub(height)) / 2;
+    let popup = Rect::new(x, y, width, height);
+
+    f.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .title(Line::from(vec![
+            Span::styled(" ◎ ", Style::default().fg(theme::CYAN)),
+            Span::styled("SELECT FILES", theme::title_style()),
+            Span::raw(" "),
+        ]))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme::CYAN))
+        .style(Style::default().bg(theme::BG_CARD));
+
+    let inner = block.inner(popup);
+    f.render_widget(block, popup);
+
+    let inner_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(1),    // File list
+            Constraint::Length(1), // Summary
+            Constraint::Length(1), // Help
+        ])
+        .split(inner);
+
+    // File list with checkboxes
+    let visible_height = inner_chunks[0].height as usize;
+    let scroll = if state.cursor >= state.scroll_offset + visible_height {
+        state.cursor.saturating_sub(visible_height - 1)
+    } else {
+        state.scroll_offset
+    };
+
+    let items: Vec<ListItem> = state
+        .files
+        .iter()
+        .enumerate()
+        .skip(scroll)
+        .take(visible_height)
+        .map(|(i, file)| {
+            let is_cursor = i == state.cursor;
+            let is_selected = *state.selected.get(i).unwrap_or(&false);
+            let arrow = if is_cursor { "▸" } else { " " };
+            let checkbox = if is_selected { "[x]" } else { "[ ]" };
+            let sc = file.status_char;
+            let path_display = truncate_str(&file.path, (width as usize).saturating_sub(26));
+
+            let ins_str = format!("+{}", file.insertions);
+            let del_str = format!("-{}", file.deletions);
+
+            Line::from(vec![
+                Span::styled(
+                    format!(" {} ", arrow),
+                    Style::default().fg(if is_cursor { theme::CYAN } else { theme::FG_DIM }),
+                ),
+                Span::styled(
+                    format!("{} ", checkbox),
+                    Style::default().fg(if is_selected { theme::GREEN } else { theme::FG_DIM })
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("{}  ", sc),
+                    Style::default()
+                        .fg(status_color(sc))
+                        .add_modifier(status_modifier(sc) | Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("{:<width$}", path_display, width = (width as usize).saturating_sub(26)),
+                    Style::default().fg(if is_cursor { theme::FG_BRIGHT } else { theme::FG }),
+                ),
+                Span::styled(
+                    format!("{:>5}", ins_str),
+                    Style::default().fg(theme::GREEN),
+                ),
+                Span::styled("  ", Style::default()),
+                Span::styled(
+                    format!("{:>5}", del_str),
+                    Style::default().fg(theme::RED),
+                ),
+            ])
+        })
+        .map(ListItem::new)
+        .collect();
+
+    let list = List::new(items);
+    f.render_widget(list, inner_chunks[0]);
+
+    // Summary line with selection count
+    let selected_count = state.selected.iter().filter(|&&s| s).count();
+    let total = state.files.len();
+    let sel_ins: usize = state.files.iter().zip(state.selected.iter())
+        .filter(|(_, &s)| s)
+        .map(|(f, _)| f.insertions)
+        .sum();
+    let sel_del: usize = state.files.iter().zip(state.selected.iter())
+        .filter(|(_, &s)| s)
+        .map(|(f, _)| f.deletions)
+        .sum();
+
+    let summary = Line::from(vec![
+        Span::styled(
+            format!("  {}/{} selected", selected_count, total),
+            Style::default().fg(theme::FG_DIM),
+        ),
+        Span::styled(" — ", Style::default().fg(theme::FG_DIM)),
+        Span::styled(
+            format!("{}(+)", sel_ins),
+            Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(" ", Style::default()),
+        Span::styled(
+            format!("{}(-)", sel_del),
+            Style::default().fg(theme::RED).add_modifier(Modifier::BOLD),
+        ),
+    ]);
+    f.render_widget(Paragraph::new(summary), inner_chunks[1]);
+
+    // Help line
+    let help = Line::from(vec![
+        Span::styled("  [Space]", Style::default().fg(theme::CYAN).add_modifier(Modifier::BOLD)),
+        Span::styled(" toggle ", Style::default().fg(theme::FG_DIM)),
+        Span::styled("[a]", Style::default().fg(theme::CYAN).add_modifier(Modifier::BOLD)),
+        Span::styled("ll ", Style::default().fg(theme::FG_DIM)),
+        Span::styled("[n]", Style::default().fg(theme::CYAN).add_modifier(Modifier::BOLD)),
+        Span::styled("one ", Style::default().fg(theme::FG_DIM)),
+        Span::styled("[Enter]", Style::default().fg(theme::CYAN).add_modifier(Modifier::BOLD)),
+        Span::styled(" confirm ", Style::default().fg(theme::FG_DIM)),
+        Span::styled("[Esc]", Style::default().fg(theme::CYAN).add_modifier(Modifier::BOLD)),
+    ]);
+    f.render_widget(Paragraph::new(help), inner_chunks[2]);
 }

@@ -1,6 +1,7 @@
 use git2::{BranchType, Repository, StatusOptions};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
+use std::process::Command;
 
 use crate::theme::GitconLevel;
 
@@ -130,6 +131,14 @@ pub struct FileStatus {
     pub staged: usize,
     pub untracked: usize,
     pub conflicted: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct FileEntry {
+    pub path: String,
+    pub status_char: char, // M, A, D, ?, C, R
+    pub insertions: usize,
+    pub deletions: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -391,4 +400,111 @@ fn calc_gitcon(files: &FileStatus, ahead: usize, behind: usize) -> GitconLevel {
         return GitconLevel::Gitcon2;
     }
     GitconLevel::Gitcon1
+}
+
+// ── File entries for commit review ─────────────────────────────────────────
+
+fn parse_numstat(output: &str) -> HashMap<String, (usize, usize)> {
+    let mut map = HashMap::new();
+    for line in output.lines() {
+        let parts: Vec<&str> = line.splitn(3, '\t').collect();
+        if parts.len() == 3 {
+            let ins = parts[0].parse::<usize>().unwrap_or(0); // binary = "-"
+            let del = parts[1].parse::<usize>().unwrap_or(0);
+            map.insert(parts[2].to_string(), (ins, del));
+        }
+    }
+    map
+}
+
+fn count_file_lines(path: &Path) -> usize {
+    std::fs::read_to_string(path)
+        .map(|s| s.lines().count())
+        .unwrap_or(0)
+}
+
+pub fn gather_file_entries(path: &Path) -> Vec<FileEntry> {
+    let repo = match Repository::discover(path) {
+        Ok(r) => r,
+        Err(_) => return Vec::new(),
+    };
+    let workdir = match repo.workdir() {
+        Some(w) => w.to_path_buf(),
+        None => return Vec::new(),
+    };
+
+    let mut opts = StatusOptions::new();
+    opts.include_untracked(true).recurse_untracked_dirs(true);
+
+    let statuses = match repo.statuses(Some(&mut opts)) {
+        Ok(s) => s,
+        Err(_) => return Vec::new(),
+    };
+
+    // Gather diff stats via git diff --numstat (unstaged) + --cached (staged)
+    let unstaged_stats = Command::new("git")
+        .args(["diff", "--numstat"])
+        .current_dir(path)
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+        .unwrap_or_default();
+    let cached_stats = Command::new("git")
+        .args(["diff", "--cached", "--numstat"])
+        .current_dir(path)
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+        .unwrap_or_default();
+
+    let unstaged_map = parse_numstat(&unstaged_stats);
+    let cached_map = parse_numstat(&cached_stats);
+
+    let mut entries = Vec::new();
+
+    for entry in statuses.iter() {
+        let s = entry.status();
+        let file_path = match entry.path() {
+            Some(p) => p.to_string(),
+            None => continue,
+        };
+
+        let status_char = if s.is_conflicted() {
+            'C'
+        } else if s.is_wt_new() {
+            '?'
+        } else if s.is_index_new() {
+            'A'
+        } else if s.is_wt_deleted() || s.is_index_deleted() {
+            'D'
+        } else if s.is_wt_renamed() || s.is_index_renamed() {
+            'R'
+        } else {
+            'M'
+        };
+
+        // Compute insertions/deletions
+        let (mut ins, mut del) = (0usize, 0usize);
+        if let Some(&(i, d)) = unstaged_map.get(&file_path) {
+            ins += i;
+            del += d;
+        }
+        if let Some(&(i, d)) = cached_map.get(&file_path) {
+            ins += i;
+            del += d;
+        }
+        // For untracked files, count lines as insertions
+        if status_char == '?' {
+            ins = count_file_lines(&workdir.join(&file_path));
+        }
+
+        entries.push(FileEntry {
+            path: file_path,
+            status_char,
+            insertions: ins,
+            deletions: del,
+        });
+    }
+
+    entries
 }

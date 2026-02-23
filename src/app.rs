@@ -1,5 +1,5 @@
 use crate::config::SodiumConfig;
-use crate::git::{self, ProjectSummary, RepoInfo};
+use crate::git::{self, FileEntry, ProjectSummary, RepoInfo};
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -35,12 +35,22 @@ pub enum ActionKind {
 
 // ── Input mode ─────────────────────────────────────────────────────────────
 
+#[derive(Debug, Clone)]
+pub struct CommitReviewState {
+    pub files: Vec<FileEntry>,
+    pub selected: Vec<bool>,
+    pub cursor: usize,
+    pub scroll_offset: usize,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum InputMode {
     Normal,
     TextInput { prompt: String, purpose: InputPurpose },
     Confirm { prompt: String, purpose: ConfirmPurpose },
     Select { prompt: String, purpose: SelectPurpose, options: Vec<String>, index: usize },
+    CommitReview,
+    CommitSelect,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -97,6 +107,8 @@ pub struct App {
     pub config: Option<SodiumConfig>,
     pub projects: Vec<ProjectSummary>,
     pub project_index: usize,
+    // Commit review state
+    pub commit_review: Option<CommitReviewState>,
 }
 
 const SUBTITLES: &[&str] = &[
@@ -132,6 +144,7 @@ impl App {
             config: Some(config),
             projects: Vec::new(),
             project_index: 0,
+            commit_review: None,
         };
         app.discover_projects();
         app
@@ -160,6 +173,7 @@ impl App {
             config: None,
             projects: Vec::new(),
             project_index: 0,
+            commit_review: None,
         };
         app.rebuild_menu();
         app
@@ -342,11 +356,19 @@ impl App {
                     self.notify("[SIGINT] Nothing to commit — tree clean", false);
                     return;
                 }
-                self.input_mode = InputMode::TextInput {
-                    prompt: "Commit message".into(),
-                    purpose: InputPurpose::CommitMessage,
-                };
-                self.input_buffer.clear();
+                let files = git::gather_file_entries(&self.repo_path);
+                if files.is_empty() {
+                    self.notify("[SIGINT] Nothing to commit — tree clean", false);
+                    return;
+                }
+                let len = files.len();
+                self.commit_review = Some(CommitReviewState {
+                    files,
+                    selected: vec![false; len],
+                    cursor: 0,
+                    scroll_offset: 0,
+                });
+                self.input_mode = InputMode::CommitReview;
             }
             ActionKind::SwitchBranch => {
                 let branches: Vec<String> = self.repo_info.branches.iter()
@@ -449,12 +471,96 @@ impl App {
                     }
                 }
             }
-            InputMode::Normal => {}
+            InputMode::Normal | InputMode::CommitReview | InputMode::CommitSelect => {}
         }
     }
 
     pub fn cancel_input(&mut self) {
         self.input_mode = InputMode::Normal;
+        self.input_buffer.clear();
+        self.commit_review = None;
+    }
+
+    // ── Commit review navigation ────────────────────────────────────────
+
+    pub fn commit_review_up(&mut self) {
+        if let Some(ref mut state) = self.commit_review {
+            if state.cursor > 0 {
+                state.cursor -= 1;
+                if state.cursor < state.scroll_offset {
+                    state.scroll_offset = state.cursor;
+                }
+            }
+        }
+    }
+
+    pub fn commit_review_down(&mut self) {
+        if let Some(ref mut state) = self.commit_review {
+            if state.cursor < state.files.len().saturating_sub(1) {
+                state.cursor += 1;
+            }
+        }
+    }
+
+    pub fn commit_toggle_file(&mut self) {
+        if let Some(ref mut state) = self.commit_review {
+            let i = state.cursor;
+            if i < state.selected.len() {
+                state.selected[i] = !state.selected[i];
+            }
+        }
+    }
+
+    pub fn commit_select_all(&mut self) {
+        if let Some(ref mut state) = self.commit_review {
+            for s in state.selected.iter_mut() {
+                *s = true;
+            }
+        }
+    }
+
+    pub fn commit_select_none(&mut self) {
+        if let Some(ref mut state) = self.commit_review {
+            for s in state.selected.iter_mut() {
+                *s = false;
+            }
+        }
+    }
+
+    pub fn commit_add_all(&mut self) {
+        // Select all files and go straight to commit message
+        if let Some(ref mut state) = self.commit_review {
+            for s in state.selected.iter_mut() {
+                *s = true;
+            }
+        }
+        self.input_mode = InputMode::TextInput {
+            prompt: "Commit message".into(),
+            purpose: InputPurpose::CommitMessage,
+        };
+        self.input_buffer.clear();
+    }
+
+    pub fn commit_enter_select(&mut self) {
+        // Enter multi-select mode — pre-select nothing
+        self.input_mode = InputMode::CommitSelect;
+    }
+
+    pub fn commit_confirm_selection(&mut self) {
+        let has_selection = self
+            .commit_review
+            .as_ref()
+            .map(|s| s.selected.iter().any(|&v| v))
+            .unwrap_or(false);
+
+        if !has_selection {
+            self.notify("[ABORT] No files selected", true);
+            return;
+        }
+        self.input_mode = InputMode::TextInput {
+            prompt: "Commit message".into(),
+            purpose: InputPurpose::CommitMessage,
+        };
         self.input_buffer.clear();
     }
 
@@ -565,11 +671,38 @@ impl App {
             self.notify("[ABORT] Empty commit message", true);
             return;
         }
-        // Stage all
-        let _ = Command::new("git")
-            .args(["add", "-A"])
-            .current_dir(&self.repo_path)
-            .output();
+
+        // Stage selected files (or all if no commit_review state)
+        if let Some(ref state) = self.commit_review {
+            let files_to_add: Vec<&str> = state
+                .files
+                .iter()
+                .zip(state.selected.iter())
+                .filter(|(_, &sel)| sel)
+                .map(|(f, _)| f.path.as_str())
+                .collect();
+
+            if files_to_add.is_empty() {
+                self.notify("[ABORT] No files selected", true);
+                self.commit_review = None;
+                return;
+            }
+
+            let mut args = vec!["add", "--"];
+            args.extend(files_to_add);
+            let _ = Command::new("git")
+                .args(&args)
+                .current_dir(&self.repo_path)
+                .output();
+        } else {
+            let _ = Command::new("git")
+                .args(["add", "-A"])
+                .current_dir(&self.repo_path)
+                .output();
+        }
+
+        self.commit_review = None;
+
         let output = Command::new("git")
             .args(["commit", "-m", msg])
             .current_dir(&self.repo_path)

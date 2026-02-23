@@ -139,6 +139,24 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                         KeyCode::Down | KeyCode::Char('j') => app.select_down(),
                         _ => {}
                     },
+                    InputMode::CommitReview => match key.code {
+                        KeyCode::Esc => app.cancel_input(),
+                        KeyCode::Char('a') => app.commit_add_all(),
+                        KeyCode::Enter => app.commit_enter_select(),
+                        KeyCode::Up | KeyCode::Char('k') => app.commit_review_up(),
+                        KeyCode::Down | KeyCode::Char('j') => app.commit_review_down(),
+                        _ => {}
+                    },
+                    InputMode::CommitSelect => match key.code {
+                        KeyCode::Esc => app.cancel_input(),
+                        KeyCode::Enter => app.commit_confirm_selection(),
+                        KeyCode::Char(' ') => app.commit_toggle_file(),
+                        KeyCode::Char('a') => app.commit_select_all(),
+                        KeyCode::Char('n') => app.commit_select_none(),
+                        KeyCode::Up | KeyCode::Char('k') => app.commit_review_up(),
+                        KeyCode::Down | KeyCode::Char('j') => app.commit_review_down(),
+                        _ => {}
+                    },
                 }
             }
         }
