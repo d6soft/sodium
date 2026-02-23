@@ -8,6 +8,9 @@ fn default_remote_host() -> String {
 fn default_remote_path() -> String {
     "repos".into()
 }
+fn default_pull_rebase() -> bool {
+    true
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SodiumConfig {
@@ -16,6 +19,8 @@ pub struct SodiumConfig {
     pub remote_host: String,
     #[serde(default = "default_remote_path")]
     pub remote_path: String,
+    #[serde(default = "default_pull_rebase")]
+    pub pull_rebase: bool,
 }
 
 impl SodiumConfig {
@@ -54,6 +59,7 @@ pub fn load_config() -> Option<SodiumConfig> {
             dev_root: "~/dev".into(),
             remote_host: default_remote_host(),
             remote_path: default_remote_path(),
+            pull_rebase: default_pull_rebase(),
         };
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);

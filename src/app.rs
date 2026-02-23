@@ -25,6 +25,7 @@ pub enum ActionKind {
     Commit,
     SwitchBranch,
     Fetch,
+    Pull,
     Merge,
     Backup,
     Push,
@@ -228,6 +229,7 @@ impl App {
             ),
             MenuItem::Action(ActionKind::SwitchBranch, "Switch branch".into()),
             MenuItem::Action(ActionKind::Fetch, "Fetch (refresh)".into()),
+            MenuItem::Action(ActionKind::Pull, "Pull origin".into()),
             MenuItem::Separator,
         ];
 
@@ -390,6 +392,9 @@ impl App {
             }
             ActionKind::Fetch => {
                 self.do_fetch();
+            }
+            ActionKind::Pull => {
+                self.do_pull();
             }
             ActionKind::Merge => {
                 if self.repo_info.current_branch == "main" {
@@ -754,6 +759,46 @@ impl App {
                 if o.status.code() == Some(0) || err.contains("From") {
                     self.notify("[INTEL] Fetch complete", false);
                     self.refresh();
+                } else {
+                    self.notify(format!("[ERROR] {}", err.trim()), true);
+                }
+            }
+            Err(e) => self.notify(format!("[ERROR] {}", e), true),
+        }
+    }
+
+    fn do_pull(&mut self) {
+        let branch = self.repo_info.current_branch.clone();
+        let rebase = self
+            .config
+            .as_ref()
+            .map(|c| c.pull_rebase)
+            .unwrap_or(true);
+
+        let mut args = vec!["pull"];
+        if rebase {
+            args.push("--rebase");
+        }
+        args.push("origin");
+        args.push(&branch);
+
+        let output = Command::new("git")
+            .args(&args)
+            .current_dir(&self.repo_path)
+            .output();
+        match output {
+            Ok(o) if o.status.success() => {
+                let mode = if rebase { "rebase" } else { "merge" };
+                self.notify(
+                    format!("[INTEL] Pull complete ({}) — branch synced", mode),
+                    false,
+                );
+                self.refresh();
+            }
+            Ok(o) => {
+                let err = String::from_utf8_lossy(&o.stderr);
+                if err.contains("Already up to date") {
+                    self.notify("[INTEL] Already up to date", false);
                 } else {
                     self.notify(format!("[ERROR] {}", err.trim()), true);
                 }

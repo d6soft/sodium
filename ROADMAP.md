@@ -55,7 +55,7 @@ Reproduire les fonctionnalités existantes de `git.sh` dans une TUI ratatui.
 - [x] Notifications avec expiration auto (~4s) + clignotement
 
 ### 1.5 Manques par rapport à git.sh ⚠️
-- [ ] **Commit : affichage fichiers + choix sélectif** — git.sh affichait la liste des fichiers modifiés et proposait "Oui (git add -A)" / "Non, choisir manuellement" / "Annuler". Actuellement sodium fait `git add -A` à l'aveugle.
+- [x] **Commit : affichage fichiers + choix sélectif** — git.sh affichait la liste des fichiers modifiés et proposait "Oui (git add -A)" / "Non, choisir manuellement" / "Annuler". Corrigé en Phase 3.1.
 - [ ] **Pull** — git.sh ne l'avait pas non plus, mais c'est un trou dans le workflow standard
 
 ---
@@ -87,11 +87,11 @@ Reproduire les fonctionnalités existantes de `git.sh` dans une TUI ratatui.
 
 Quick wins à fort impact pour l'usage multi-projet au quotidien.
 
-### 3.1 Commit amélioré (régression git.sh)
-- [ ] Afficher la liste des fichiers modifiés/stagés/untracked avant commit
-- [ ] Choix : "Tout ajouter" / "Sélection manuelle" / "Annuler"
-- [ ] Overlay sélection multi-fichiers (espace pour toggle, entrée pour valider)
-- [ ] Résumé du diff (nombre de lignes +/-) par fichier
+### 3.1 Commit amélioré (régression git.sh) ✅
+- [x] Afficher la liste des fichiers modifiés/stagés/untracked avant commit
+- [x] Choix : "Tout ajouter" / "Sélection manuelle" / "Annuler"
+- [x] Overlay sélection multi-fichiers (espace pour toggle, entrée pour valider)
+- [x] Résumé du diff (nombre de lignes +/-) par fichier
 
 ### 3.2 Pull
 - [ ] Action `git pull origin <branch>` dans le menu
