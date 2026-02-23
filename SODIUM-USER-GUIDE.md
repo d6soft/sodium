@@ -100,6 +100,35 @@ pull_rebase = true
 
 **Mode mono-projet** : si pas de config ou `dev_root` invalide, Sodium s'ouvre sur le dossier courant.
 
+### Miroir GitHub (optionnel)
+
+Pour activer le push miroir vers GitHub sur certains projets, ajoutez une table `[projects.<nom>]` avec la cle `github` :
+
+```toml
+dev_root = "~/dev"
+remote_host = "git-PM7"
+remote_path = "repos"
+pull_rebase = true
+
+[projects.sodium]
+github = "git@github.com:user/sodium.git"
+
+[projects.mon-api]
+github = "git@github.com:user/mon-api.git"
+```
+
+Le nom de la table (`sodium`, `mon-api`) doit correspondre exactement au nom du dossier dans `dev_root`.
+
+Quand le miroir est configure pour un projet :
+- **Push main -> origin** pousse aussi vers GitHub automatiquement
+- **Backup branche -> origin** pousse aussi vers GitHub automatiquement
+- **Reinitialize repo** ajoute le remote `github` lors du setup
+- Le remote `github` est cree automatiquement s'il n'existe pas encore
+- Si le push GitHub echoue, le push origin reste valide (pas de blocage)
+- Un indicateur `◆ GitHub` apparait dans la barre repo
+
+Les projets sans table `[projects.xxx]` ne sont pas affectes.
+
 ---
 
 ## Les deux ecrans
@@ -344,6 +373,8 @@ Pousse la branche courante (hors main) vers origin. Utile pour sauvegarder votre
 Equivalent : git push origin <branche>
 ```
 
+Si le miroir GitHub est configure pour ce projet, la branche est aussi pushee vers `github` automatiquement. La notification affiche `+ GitHub` en cas de succes.
+
 **Note** : cette action n'apparait que si vous n'etes **pas** sur main. Pour main, utilisez "Push main -> origin".
 
 ---
@@ -357,6 +388,8 @@ Equivalent : git push origin main
 ```
 
 **Bonus** : apres un push reussi, Sodium nettoie automatiquement les branches deja mergees dans main (locale + remote). Le message indique combien de branches ont ete supprimees.
+
+Si le miroir GitHub est configure pour ce projet, main est aussi pushee vers `github` automatiquement. La notification affiche `+ GitHub` en cas de succes.
 
 ---
 
@@ -389,9 +422,10 @@ Sodium va :
 3. Supprimer le `.git` local
 4. `git init -b main`
 5. Ajouter le remote origin
-6. Generer un `.gitignore` adapte au projet (detection automatique : Node/Svelte/Capacitor/Rust/Go/Flutter)
-7. Faire un commit initial
-8. Push vers origin
+6. Ajouter le remote github (si configure dans `sodium.toml`)
+7. Generer un `.gitignore` adapte au projet (detection automatique : Node/Svelte/Capacitor/Rust/Go/Flutter)
+8. Faire un commit initial
+9. Push vers origin
 
 **Quand l'utiliser** : quand un repo est trop pollue ou que vous voulez repartir de zero tout en gardant vos fichiers.
 
@@ -476,3 +510,9 @@ R : Editez `~/.config/sodium/sodium.toml` et mettez `pull_rebase = false` pour u
 
 **Q : Un dossier affiche "NO REPO"**
 R : Ce dossier dans `dev_root` n'a pas de `.git`. Utilisez Reinitialize repo pour en creer un, ou initialisez-le manuellement avec `git init`.
+
+**Q : Comment activer le miroir GitHub ?**
+R : Ajoutez une section `[projects.nom-du-dossier]` avec `github = "git@github.com:user/repo.git"` dans `~/.config/sodium/sodium.toml`. Le nom doit correspondre au dossier du projet. L'indicateur `◆ GitHub` apparait dans la barre repo quand le remote est detecte.
+
+**Q : Le push GitHub echoue mais le push origin fonctionne**
+R : Le miroir GitHub est non-bloquant. Verifiez que votre cle SSH a acces au repo GitHub, et que l'URL dans `sodium.toml` est correcte. Le push origin reste valide meme si GitHub echoue.
