@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
@@ -13,6 +14,11 @@ fn default_pull_rebase() -> bool {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectConfig {
+    pub github: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SodiumConfig {
     pub dev_root: String,
     #[serde(default = "default_remote_host")]
@@ -21,12 +27,23 @@ pub struct SodiumConfig {
     pub remote_path: String,
     #[serde(default = "default_pull_rebase")]
     pub pull_rebase: bool,
+    #[serde(default)]
+    pub projects: Option<HashMap<String, ProjectConfig>>,
 }
 
 impl SodiumConfig {
     /// Resolve dev_root with tilde expansion into an absolute PathBuf.
     pub fn dev_root_path(&self) -> PathBuf {
         expand_tilde(&self.dev_root)
+    }
+
+    /// Return the GitHub mirror URL for a project, if configured.
+    pub fn github_url(&self, project_name: &str) -> Option<&str> {
+        self.projects
+            .as_ref()?
+            .get(project_name)?
+            .github
+            .as_deref()
     }
 }
 
@@ -60,6 +77,7 @@ pub fn load_config() -> Option<SodiumConfig> {
             remote_host: default_remote_host(),
             remote_path: default_remote_path(),
             pull_rebase: default_pull_rebase(),
+            projects: None,
         };
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);

@@ -26,6 +26,7 @@ pub enum ActionKind {
     SwitchBranch,
     Fetch,
     Pull,
+    CheckoutRemote,
     Merge,
     Backup,
     Push,
@@ -70,6 +71,7 @@ pub enum ConfirmPurpose {
 pub enum SelectPurpose {
     SwitchBranch,
     MergeBranch,
+    CheckoutRemoteBranch,
 }
 
 // ── Notification ───────────────────────────────────────────────────────────
@@ -230,6 +232,7 @@ impl App {
             MenuItem::Action(ActionKind::SwitchBranch, "Switch branch".into()),
             MenuItem::Action(ActionKind::Fetch, "Fetch (refresh)".into()),
             MenuItem::Action(ActionKind::Pull, "Pull origin".into()),
+            MenuItem::Action(ActionKind::CheckoutRemote, "Checkout remote branch".into()),
             MenuItem::Separator,
         ];
 
@@ -396,6 +399,24 @@ impl App {
             ActionKind::Pull => {
                 self.do_pull();
             }
+            ActionKind::CheckoutRemote => {
+                let branches: Vec<String> = self.repo_info.branches.iter()
+                    .filter(|b| b.is_remote && !b.is_local && b.name != "main")
+                    .map(|b| b.name.clone())
+                    .collect();
+
+                if branches.is_empty() {
+                    self.notify("[INTEL] No remote-only branches available", false);
+                    return;
+                }
+
+                self.input_mode = InputMode::Select {
+                    prompt: "Checkout remote branch".into(),
+                    purpose: SelectPurpose::CheckoutRemoteBranch,
+                    options: branches,
+                    index: 0,
+                };
+            }
             ActionKind::Merge => {
                 if self.repo_info.current_branch == "main" {
                     // On main: pick a branch to merge
@@ -473,6 +494,7 @@ impl App {
                     match purpose {
                         SelectPurpose::SwitchBranch => self.do_switch_branch(&selected),
                         SelectPurpose::MergeBranch => self.do_merge(&selected),
+                        SelectPurpose::CheckoutRemoteBranch => self.do_checkout_remote(&selected),
                     }
                 }
             }
@@ -743,6 +765,25 @@ impl App {
         }
     }
 
+    fn do_checkout_remote(&mut self, branch: &str) {
+        let remote_ref = format!("origin/{}", branch);
+        let output = Command::new("git")
+            .args(["checkout", "-b", branch, &remote_ref])
+            .current_dir(&self.repo_path)
+            .output();
+        match output {
+            Ok(o) if o.status.success() => {
+                self.notify(format!("[INTEL] Checked out '{}' from remote", branch), false);
+                self.refresh();
+            }
+            Ok(o) => {
+                let err = String::from_utf8_lossy(&o.stderr);
+                self.notify(format!("[ERROR] {}", err.trim()), true);
+            }
+            Err(e) => self.notify(format!("[ERROR] {}", e), true),
+        }
+    }
+
     fn do_fetch(&mut self) {
         let output = Command::new("git")
             .args(["fetch", "--prune", "origin"])
@@ -769,6 +810,15 @@ impl App {
 
     fn do_pull(&mut self) {
         let branch = self.repo_info.current_branch.clone();
+
+        // Check if branch exists on remote
+        let has_remote = self.repo_info.branches.iter()
+            .any(|b| b.name == branch && b.is_remote);
+        if !has_remote {
+            self.notify(format!("[INTEL] '{}' has no remote — nothing to pull", branch), false);
+            return;
+        }
+
         let rebase = self
             .config
             .as_ref()
@@ -856,13 +906,14 @@ impl App {
         match output {
             Ok(o) if o.status.success() => {
                 let cleaned = self.cleanup_merged_branches();
+                let gh_suffix = self.mirror_to_github("main").unwrap_or_default();
                 if cleaned > 0 {
                     self.notify(
-                        format!("[SIGINT] Push complete — {} merged branch(es) cleaned", cleaned),
+                        format!("[SIGINT] Push complete — {} merged branch(es) cleaned{}", cleaned, gh_suffix),
                         false,
                     );
                 } else {
-                    self.notify("[SIGINT] Push complete — intel transmitted", false);
+                    self.notify(format!("[SIGINT] Push complete — intel transmitted{}", gh_suffix), false);
                 }
                 self.refresh();
             }
@@ -890,7 +941,8 @@ impl App {
             .output();
         match output {
             Ok(o) if o.status.success() => {
-                self.notify(format!("[SIGINT] {} backed up to origin", branch), false);
+                let gh_suffix = self.mirror_to_github(&branch).unwrap_or_default();
+                self.notify(format!("[SIGINT] {} backed up to origin{}", branch, gh_suffix), false);
                 self.refresh();
             }
             Ok(o) => {
@@ -1059,6 +1111,18 @@ impl App {
             return;
         }
 
+        // Add github remote if configured
+        if let Some(gh_url) = self
+            .config
+            .as_ref()
+            .and_then(|c| c.github_url(repo_name).map(String::from))
+        {
+            let _ = Command::new("git")
+                .args(["remote", "add", "github", &gh_url])
+                .current_dir(&self.repo_path)
+                .output();
+        }
+
         // Generate .gitignore
         let gitignore = self.generate_gitignore();
         let _ = std::fs::write(self.repo_path.join(".gitignore"), gitignore);
@@ -1144,6 +1208,44 @@ impl App {
         }
 
         gi
+    }
+
+    /// Mirror push a branch to the `github` remote if configured.
+    /// Returns a suffix string (e.g. " + GitHub") on success, or None.
+    fn mirror_to_github(&self, branch: &str) -> Option<String> {
+        let project_name = &self.repo_info.name;
+        let github_url = self
+            .config
+            .as_ref()
+            .and_then(|c| c.github_url(project_name).map(String::from))?;
+
+        // Ensure the github remote exists
+        let check = Command::new("git")
+            .args(["remote", "get-url", "github"])
+            .current_dir(&self.repo_path)
+            .output();
+
+        let has_remote = check.map(|o| o.status.success()).unwrap_or(false);
+        if !has_remote {
+            let add = Command::new("git")
+                .args(["remote", "add", "github", &github_url])
+                .current_dir(&self.repo_path)
+                .output();
+            if !add.map(|o| o.status.success()).unwrap_or(false) {
+                return None;
+            }
+        }
+
+        // Push to github
+        let push = Command::new("git")
+            .args(["push", "github", branch])
+            .current_dir(&self.repo_path)
+            .output();
+
+        match push {
+            Ok(o) if o.status.success() => Some(" + GitHub".into()),
+            _ => None,
+        }
     }
 
     /// Delete local + remote branches already merged into main. Returns count cleaned.

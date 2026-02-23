@@ -1,11 +1,12 @@
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
-    symbols,
+    style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, Padding, Paragraph, Sparkline},
+    widgets::{Block, Borders, Clear, List, ListItem, Padding, Paragraph},
     Frame,
 };
+
+use chrono::Datelike;
 
 use crate::app::{App, CommitReviewState, InputMode, MenuItem, Screen};
 use crate::theme;
@@ -25,11 +26,11 @@ fn truncate_str(s: &str, max_chars: usize) -> String {
 // ── ASCII art header ───────────────────────────────────────────────────────
 
 const SODIUM_LOGO: &[&str] = &[
-    "███████  ██████  ██████  ██ ██    ██ ███    ███",
-    "██      ██    ██ ██   ██ ██ ██    ██ ████  ████",
-    "███████ ██    ██ ██   ██ ██ ██    ██ ██ ████ ██",
-    "     ██ ██    ██ ██   ██ ██ ██    ██ ██  ██  ██",
-    "███████  ██████  ██████  ██  ██████  ██      ██",
+    "◉━━━ ░▒▓  ███████  ██████  ██████  ██ ██    ██ ███    ███  ▓▒░ ━━━◉",
+    "┃    ░▒▓  ██      ██    ██ ██   ██ ██ ██    ██ ████  ████  ▓▒░    ┃",
+    "◎━▸▸ ░▒▓  ███████ ██    ██ ██   ██ ██ ██    ██ ██ ████ ██  ▓▒░ ◂◂━◎",
+    "┃    ░▒▓       ██ ██    ██ ██   ██ ██ ██    ██ ██  ██  ██  ▓▒░    ┃",
+    "◉━━━ ░▒▓  ███████  ██████  ██████  ██  ██████  ██      ██  ▓▒░ ━━━◉",
 ];
 
 const GLITCH_CHARS: &[char] = &[
@@ -532,7 +533,7 @@ fn render_body(f: &mut Frame, app: &App, area: Rect) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3),  // Repo name + branch + remote
-            Constraint::Min(6),    // Middle row (branches + activity + files)
+            Constraint::Length(13), // Middle row (branches + activity + files)
             Constraint::Length(1), // Spacer
             Constraint::Min(8),    // Actions menu
         ])
@@ -574,10 +575,16 @@ fn render_repo_bar(f: &mut Frame, app: &App, area: Rect) {
         ),
     ]);
 
-    let line2 = Line::from(vec![
+    let mut line2_spans = vec![
         Span::styled("    ╰ ", Style::default().fg(theme::BORDER)),
         Span::styled(remote_display, Style::default().fg(theme::FG_DIM)),
-    ]);
+    ];
+
+    if info.github_url.is_some() {
+        line2_spans.push(Span::styled("  ◆ GitHub", Style::default().fg(theme::CYAN).add_modifier(Modifier::BOLD)));
+    }
+
+    let line2 = Line::from(line2_spans);
 
     f.render_widget(Paragraph::new(vec![line1, line2]), area);
 }
@@ -686,14 +693,13 @@ fn render_branches(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_activity(f: &mut Frame, app: &App, area: Rect) {
+    let grid = &app.repo_info.activity_grid;
+    let recent_ops: u16 = grid.iter().map(|d| d.total()).sum();
+
     let block = Block::default()
         .title(Line::from(vec![
             Span::styled(" ⚡ ", Style::default().fg(theme::ORANGE)),
-            Span::styled("ACTIVITY", theme::title_style()),
-            Span::styled(
-                format!(" ({}d) ", app.repo_info.commit_activity.len()),
-                Style::default().fg(theme::FG_DIM),
-            ),
+            Span::styled("ACTIVITY ", theme::title_style()),
         ]))
         .borders(Borders::ALL)
         .border_style(theme::border_style())
@@ -705,23 +711,92 @@ fn render_activity(f: &mut Frame, app: &App, area: Rect) {
     let inner_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Min(3),    // Sparkline
-            Constraint::Length(1), // Spacer
+            Constraint::Length(7), // Heatmap (7 rows = days of week)
+            Constraint::Length(1), // Legend
             Constraint::Length(1), // Stats
             Constraint::Length(1), // Sync
         ])
         .split(inner);
 
-    // Sparkline
-    let sparkline = Sparkline::default()
-        .data(&app.repo_info.commit_activity)
-        .style(Style::default().fg(theme::BLUE))
-        .bar_set(symbols::bar::NINE_LEVELS);
-    f.render_widget(sparkline, inner_chunks[0]);
+    // ── GitHub-style heatmap ──────────────────────────────────────────
+    const HEAT: [Color; 5] = [
+        Color::Rgb(25, 32, 45),   // 0: no activity (dim)
+        Color::Rgb(14, 68, 41),   // 1: low
+        Color::Rgb(0, 109, 50),   // 2: medium-low
+        Color::Rgb(38, 166, 65),  // 3: medium-high
+        Color::Rgb(57, 211, 83),  // 4: high
+    ];
 
-    // Stats
+    let now = chrono::Utc::now();
+    let today_dow = now.weekday().num_days_from_monday() as usize; // 0=Mon, 6=Sun
+    let max_ops: u16 = grid.iter().map(|d| d.total()).max().unwrap_or(0);
+
+    // Build 7×13 grid (rows=day-of-week, cols=weeks)
+    let mut heatmap: [[Option<u16>; 13]; 7] = [[None; 13]; 7];
+
+    for (idx, day) in grid.iter().enumerate() {
+        let days_ago = (grid.len() - 1 - idx) as i64;
+        let dow = ((today_dow as i64 + 7 - (days_ago % 7)) % 7) as usize;
+        let weeks_ago = (days_ago + dow as i64 - today_dow as i64) / 7;
+        if weeks_ago >= 0 && (weeks_ago as usize) < 13 {
+            let col = 12 - weeks_ago as usize;
+            heatmap[dow][col] = Some(day.total());
+        }
+    }
+
+    let day_labels = ["L", "M", "M", "J", "V", "S", "D"];
+    let mut lines = Vec::new();
+
+    for (row, label) in day_labels.iter().enumerate() {
+        let mut spans = vec![
+            Span::styled(
+                format!("{} ", label),
+                Style::default().fg(theme::FG_DIM),
+            ),
+        ];
+
+        for col in 0..13 {
+            match heatmap[row][col] {
+                None => spans.push(Span::raw("  ")),
+                Some(val) => {
+                    let level = if val == 0 {
+                        0
+                    } else if max_ops <= 4 {
+                        (val as usize).min(4)
+                    } else {
+                        let pct = val as f32 / max_ops as f32;
+                        if pct <= 0.25 { 1 }
+                        else if pct <= 0.50 { 2 }
+                        else if pct <= 0.75 { 3 }
+                        else { 4 }
+                    };
+                    spans.push(Span::styled(
+                        "█ ",
+                        Style::default().fg(HEAT[level]),
+                    ));
+                }
+            }
+        }
+
+        lines.push(Line::from(spans));
+    }
+
+    f.render_widget(Paragraph::new(lines), inner_chunks[0]);
+
+    // ── Legend ─────────────────────────────────────────────────────────
+    let legend = Line::from(vec![
+        Span::styled(" Less ", Style::default().fg(theme::FG_DIM)),
+        Span::styled("█ ", Style::default().fg(HEAT[0])),
+        Span::styled("█ ", Style::default().fg(HEAT[1])),
+        Span::styled("█ ", Style::default().fg(HEAT[2])),
+        Span::styled("█ ", Style::default().fg(HEAT[3])),
+        Span::styled("█ ", Style::default().fg(HEAT[4])),
+        Span::styled("More", Style::default().fg(theme::FG_DIM)),
+    ]);
+    f.render_widget(Paragraph::new(legend), inner_chunks[1]);
+
+    // ── Stats ─────────────────────────────────────────────────────────
     let total = app.repo_info.total_commits;
-    let recent: u64 = app.repo_info.commit_activity.iter().sum();
     let stats_line = Line::from(vec![
         Span::styled(" ", Style::default()),
         Span::styled(
@@ -730,18 +805,18 @@ fn render_activity(f: &mut Frame, app: &App, area: Rect) {
                 .fg(theme::FG_BRIGHT)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(" total  ", Style::default().fg(theme::FG_DIM)),
+        Span::styled(" commits  ", Style::default().fg(theme::FG_DIM)),
         Span::styled(
-            format!("{}", recent),
+            format!("{}", recent_ops),
             Style::default()
                 .fg(theme::CYAN)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(" recent", Style::default().fg(theme::FG_DIM)),
+        Span::styled(" actions récentes", Style::default().fg(theme::FG_DIM)),
     ]);
     f.render_widget(Paragraph::new(stats_line), inner_chunks[2]);
 
-    // Sync status
+    // ── Sync status ───────────────────────────────────────────────────
     let (ahead, behind) = (app.repo_info.ahead, app.repo_info.behind);
     let sync_spans = if ahead == 0 && behind == 0 {
         vec![

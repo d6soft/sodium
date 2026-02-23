@@ -117,6 +117,20 @@ fn format_commit_age(timestamp: i64) -> String {
 
 // ── Data structures ────────────────────────────────────────────────────────
 
+#[derive(Debug, Clone, Default)]
+pub struct DayActivity {
+    pub commits: u8,
+    pub merges: u8,
+    pub branches: u8,
+    pub pulls: u8,
+}
+
+impl DayActivity {
+    pub fn total(&self) -> u16 {
+        self.commits as u16 + self.merges as u16 + self.branches as u16 + self.pulls as u16
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct BranchInfo {
     pub name: String,
@@ -152,7 +166,8 @@ pub struct RepoInfo {
     pub behind: usize,
     pub files: FileStatus,
     pub remote_url: Option<String>,
-    pub commit_activity: Vec<u64>,
+    pub github_url: Option<String>,
+    pub activity_grid: Vec<DayActivity>,
     pub gitcon: GitconLevel,
     pub total_commits: usize,
 }
@@ -174,7 +189,8 @@ impl Default for RepoInfo {
                 conflicted: 0,
             },
             remote_url: None,
-            commit_activity: vec![0; 14],
+            github_url: None,
+            activity_grid: vec![DayActivity::default(); 91],
             gitcon: GitconLevel::Gitcon5,
             total_commits: 0,
         }
@@ -263,8 +279,14 @@ pub fn gather_repo_info(path: &Path) -> Option<RepoInfo> {
         .ok()
         .and_then(|r| r.url().map(String::from));
 
-    // ── Commit activity (last 14 days) ─────────────────────────────────
-    let commit_activity = calc_commit_activity(&repo);
+    // ── GitHub remote URL ────────────────────────────────────────────
+    let github_url = repo
+        .find_remote("github")
+        .ok()
+        .and_then(|r| r.url().map(String::from));
+
+    // ── Activity grid (last 14 days, from reflog) ─────────────────────
+    let activity_grid = calc_activity_grid(&repo);
 
     // ── Total commits ──────────────────────────────────────────────────
     let total_commits = count_commits(&repo);
@@ -282,7 +304,8 @@ pub fn gather_repo_info(path: &Path) -> Option<RepoInfo> {
         behind,
         files,
         remote_url,
-        commit_activity,
+        github_url,
+        activity_grid,
         gitcon,
         total_commits,
     })
@@ -352,31 +375,45 @@ fn calc_file_status(repo: &Repository) -> FileStatus {
     }
 }
 
-fn calc_commit_activity(repo: &Repository) -> Vec<u64> {
-    let mut activity = vec![0u64; 14];
+fn calc_activity_grid(repo: &Repository) -> Vec<DayActivity> {
+    let mut grid = vec![DayActivity::default(); 91];
     let now = chrono::Utc::now().timestamp();
     let day_secs: i64 = 86400;
 
-    let mut revwalk = match repo.revwalk() {
-        Ok(rw) => rw,
-        Err(_) => return activity,
+    let reflog = match repo.reflog("HEAD") {
+        Ok(r) => r,
+        Err(_) => return grid,
     };
-    let _ = revwalk.push_head();
 
-    for oid in revwalk.flatten() {
-        if let Ok(commit) = repo.find_commit(oid) {
-            let time = commit.time().seconds();
-            let days_ago = (now - time) / day_secs;
-            if days_ago >= 0 && days_ago < 14 {
-                activity[13 - days_ago as usize] += 1;
-            }
-            if days_ago >= 14 {
-                break;
-            }
+    for i in 0..reflog.len() {
+        let entry = match reflog.get(i) {
+            Some(e) => e,
+            None => continue,
+        };
+
+        let time = entry.committer().when().seconds();
+        let days_ago = (now - time) / day_secs;
+        if days_ago >= 91 {
+            break; // reflog is newest-first
+        }
+        if days_ago < 0 {
+            continue;
+        }
+        let idx = 90 - days_ago as usize;
+        let msg = entry.message().unwrap_or("");
+
+        if msg.starts_with("commit (merge)") || msg.starts_with("merge ") {
+            grid[idx].merges = grid[idx].merges.saturating_add(1);
+        } else if msg.starts_with("commit") {
+            grid[idx].commits = grid[idx].commits.saturating_add(1);
+        } else if msg.starts_with("checkout:") {
+            grid[idx].branches = grid[idx].branches.saturating_add(1);
+        } else if msg.starts_with("pull") {
+            grid[idx].pulls = grid[idx].pulls.saturating_add(1);
         }
     }
 
-    activity
+    grid
 }
 
 fn count_commits(repo: &Repository) -> usize {
