@@ -26,11 +26,11 @@ fn truncate_str(s: &str, max_chars: usize) -> String {
 // ── ASCII art header ───────────────────────────────────────────────────────
 
 const SODIUM_LOGO: &[&str] = &[
-    "◉━━━ ░▒▓    ███████  ██████  ██████  ██ ██    ██ ███    ███    ▓▒░ ━━━◉",
-    "┃    ░▒▓    ██      ██    ██ ██   ██ ██ ██    ██ ████  ████    ▓▒░    ┃",
-    "◎━▸▸ ░▒▓    ███████ ██    ██ ██   ██ ██ ██    ██ ██ ████ ██    ▓▒░ ◂◂━◎",
-    "┃    ░▒▓         ██ ██    ██ ██   ██ ██ ██    ██ ██  ██  ██    ▓▒░    ┃",
-    "◉━━━ ░▒▓    ███████  ██████  ██████  ██  ██████  ██      ██    ▓▒░ ━━━◉",
+    "◉━━━ ░▒▓       ███████  ██████  ██████  ██ ██    ██ ███    ███       ▓▒░ ━━━◉",
+    "┃    ░▒▓       ██      ██    ██ ██   ██ ██ ██    ██ ████  ████       ▓▒░    ┃",
+    "◎━▸▸ ░▒▓       ███████ ██    ██ ██   ██ ██ ██    ██ ██ ████ ██       ▓▒░ ◂◂━◎",
+    "┃    ░▒▓            ██ ██    ██ ██   ██ ██ ██    ██ ██  ██  ██       ▓▒░    ┃",
+    "◉━━━ ░▒▓       ███████  ██████  ██████  ██  ██████  ██      ██       ▓▒░ ━━━◉",
 ];
 
 const GLITCH_CHARS: &[char] = &[
@@ -532,36 +532,41 @@ fn render_body(f: &mut Frame, app: &App, area: Rect) {
     let body = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Repo name + branch + remote
+            Constraint::Length(4),  // Repo name + branch + remote (bordered, 2 lines)
             Constraint::Length(12), // Middle row (branches + activity + files)
-            Constraint::Length(1), // Spacer
             Constraint::Min(8),    // Actions menu
         ])
-        .margin(1)
+        .horizontal_margin(1)
         .split(area);
 
     render_repo_bar(f, app, body[0]);
     render_middle_row(f, app, body[1]);
-    render_actions(f, app, body[3]);
+    render_actions(f, app, body[2]);
 }
 
 fn render_repo_bar(f: &mut Frame, app: &App, area: Rect) {
     let info = &app.repo_info;
 
-    let remote_display = info
-        .remote_url
-        .as_deref()
-        .unwrap_or("no remote");
+    let block = Block::default()
+        .title(Line::from(vec![
+            Span::styled(" ◆ ", Style::default().fg(theme::CYAN)),
+            Span::styled(
+                &info.name,
+                Style::default()
+                    .fg(theme::CYAN)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" "),
+        ]))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme::CYAN))
+        .style(Style::default().bg(theme::BG_CARD));
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
 
     let line1 = Line::from(vec![
-        Span::styled("  ◆ ", Style::default().fg(theme::CYAN)),
-        Span::styled(
-            &info.name,
-            Style::default()
-                .fg(theme::FG_BRIGHT)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled("  on  ", Style::default().fg(theme::FG_DIM)),
+        Span::styled(" on ", Style::default().fg(theme::FG_DIM)),
         Span::styled(
             &info.current_branch,
             Style::default()
@@ -575,18 +580,24 @@ fn render_repo_bar(f: &mut Frame, app: &App, area: Rect) {
         ),
     ]);
 
-    let mut line2_spans = vec![
-        Span::styled("    ╰ ", Style::default().fg(theme::BORDER)),
+    let remote_display = info
+        .remote_url
+        .as_deref()
+        .unwrap_or("no remote");
+
+    let mut remote_spans = vec![
+        Span::styled(" ╰ ", Style::default().fg(theme::BORDER)),
         Span::styled(remote_display, Style::default().fg(theme::FG_DIM)),
     ];
 
-    if info.github_url.is_some() {
-        line2_spans.push(Span::styled("  ◆ GitHub", Style::default().fg(theme::CYAN).add_modifier(Modifier::BOLD)));
+    if let Some(ref gh_url) = info.github_url {
+        remote_spans.push(Span::styled("  │  ", Style::default().fg(theme::BORDER)));
+        remote_spans.push(Span::styled("◆ ", Style::default().fg(theme::CYAN)));
+        remote_spans.push(Span::styled(gh_url.as_str(), Style::default().fg(theme::FG_DIM)));
     }
 
-    let line2 = Line::from(line2_spans);
-
-    f.render_widget(Paragraph::new(vec![line1, line2]), area);
+    let line2 = Line::from(remote_spans);
+    f.render_widget(Paragraph::new(vec![line1, line2]), inner);
 }
 
 fn render_middle_row(f: &mut Frame, app: &App, area: Rect) {
