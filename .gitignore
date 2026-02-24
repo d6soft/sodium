@@ -22,3 +22,8 @@ Thumbs.db
 # ── Rust ──
 target/
 *.rs.bk
+
+# --- Images ---
+*.png
+*.jpg
+*.jpeg

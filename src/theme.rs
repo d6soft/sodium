@@ -29,6 +29,7 @@ pub const RED: Color = Color::Rgb(239, 68, 68);
 /// Magenta — special accents
 pub const MAGENTA: Color = Color::Rgb(168, 85, 247);
 /// Blue — subtle accent
+#[allow(dead_code)]
 pub const BLUE: Color = Color::Rgb(59, 130, 246);
 
 // ── GITCON levels ──────────────────────────────────────────────────────────

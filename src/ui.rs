@@ -26,11 +26,11 @@ fn truncate_str(s: &str, max_chars: usize) -> String {
 // ── ASCII art header ───────────────────────────────────────────────────────
 
 const SODIUM_LOGO: &[&str] = &[
-    "◉━━━ ░▒▓  ███████  ██████  ██████  ██ ██    ██ ███    ███  ▓▒░ ━━━◉",
-    "┃    ░▒▓  ██      ██    ██ ██   ██ ██ ██    ██ ████  ████  ▓▒░    ┃",
-    "◎━▸▸ ░▒▓  ███████ ██    ██ ██   ██ ██ ██    ██ ██ ████ ██  ▓▒░ ◂◂━◎",
-    "┃    ░▒▓       ██ ██    ██ ██   ██ ██ ██    ██ ██  ██  ██  ▓▒░    ┃",
-    "◉━━━ ░▒▓  ███████  ██████  ██████  ██  ██████  ██      ██  ▓▒░ ━━━◉",
+    "◉━━━ ░▒▓    ███████  ██████  ██████  ██ ██    ██ ███    ███    ▓▒░ ━━━◉",
+    "┃    ░▒▓    ██      ██    ██ ██   ██ ██ ██    ██ ████  ████    ▓▒░    ┃",
+    "◎━▸▸ ░▒▓    ███████ ██    ██ ██   ██ ██ ██    ██ ██ ████ ██    ▓▒░ ◂◂━◎",
+    "┃    ░▒▓         ██ ██    ██ ██   ██ ██ ██    ██ ██  ██  ██    ▓▒░    ┃",
+    "◉━━━ ░▒▓    ███████  ██████  ██████  ██  ██████  ██      ██    ▓▒░ ━━━◉",
 ];
 
 const GLITCH_CHARS: &[char] = &[
@@ -385,7 +385,7 @@ fn render_project_list_footer(f: &mut Frame, _app: &App, area: Rect) {
 
     let branding = format!(
         "{:>width$}",
-        "⚛ sodium v0.1",
+        "⚛ sodium v26.02.24",
         width = area.width.saturating_sub(55) as usize
     );
 
@@ -533,7 +533,7 @@ fn render_body(f: &mut Frame, app: &App, area: Rect) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3),  // Repo name + branch + remote
-            Constraint::Length(13), // Middle row (branches + activity + files)
+            Constraint::Length(12), // Middle row (branches + activity + files)
             Constraint::Length(1), // Spacer
             Constraint::Min(8),    // Actions menu
         ])
@@ -608,7 +608,7 @@ fn render_branches(f: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
         .title(Line::from(vec![
             Span::styled(" ⊙ ", Style::default().fg(theme::CYAN)),
-            Span::styled("BRANCHES", theme::title_style()),
+            Span::styled("BRANCHS", theme::title_style()),
             Span::raw(" "),
         ]))
         .borders(Borders::ALL)
@@ -960,44 +960,61 @@ fn render_actions(f: &mut Frame, app: &App, area: Rect) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
+    let visible = inner.height as usize;
+    let total = app.menu_items.len();
+
+    // Compute scroll offset to keep selected item visible
+    let scroll_offset = if total <= visible {
+        0
+    } else {
+        let max_offset = total.saturating_sub(visible);
+        // Keep selected item roughly centered, clamped to valid range
+        app.menu_index.saturating_sub(visible / 2).min(max_offset)
+    };
+
+    let end = (scroll_offset + visible).min(total);
+
     let items: Vec<ListItem> = app
-        .menu_items
+        .menu_items[scroll_offset..end]
         .iter()
         .enumerate()
-        .map(|(i, item)| match item {
-            MenuItem::Separator => {
-                ListItem::new(Line::from(Span::styled(
-                    "    ─────────────────────────────────",
-                    Style::default().fg(theme::BORDER),
-                )))
-            }
-            MenuItem::Action(kind, label) => {
-                let is_selected = i == app.menu_index;
-                if is_selected {
-                    ListItem::new(Line::from(vec![
-                        Span::styled(
-                            "  ▸ ",
-                            Style::default()
-                                .fg(theme::CYAN)
-                                .add_modifier(Modifier::BOLD),
-                        ),
-                        Span::styled(
-                            label.as_str(),
-                            Style::default()
-                                .fg(theme::FG_BRIGHT)
-                                .add_modifier(Modifier::BOLD),
-                        ),
-                    ]))
-                } else {
-                    let color = match kind {
-                        crate::app::ActionKind::Quit => theme::FG_DIM,
-                        crate::app::ActionKind::Reinit => theme::RED,
-                        _ => theme::FG,
-                    };
-                    ListItem::new(Line::from(vec![
-                        Span::styled("    ", Style::default()),
-                        Span::styled(label.as_str(), Style::default().fg(color)),
-                    ]))
+        .map(|(vi, item)| {
+            let i = scroll_offset + vi;
+            match item {
+                MenuItem::Separator => {
+                    ListItem::new(Line::from(Span::styled(
+                        "    ─────────────────────────────────",
+                        Style::default().fg(theme::BORDER),
+                    )))
+                }
+                MenuItem::Action(kind, label) => {
+                    let is_selected = i == app.menu_index;
+                    if is_selected {
+                        ListItem::new(Line::from(vec![
+                            Span::styled(
+                                "  ▸ ",
+                                Style::default()
+                                    .fg(theme::CYAN)
+                                    .add_modifier(Modifier::BOLD),
+                            ),
+                            Span::styled(
+                                label.as_str(),
+                                Style::default()
+                                    .fg(theme::FG_BRIGHT)
+                                    .add_modifier(Modifier::BOLD),
+                            ),
+                        ]))
+                    } else {
+                        let color = match kind {
+                            crate::app::ActionKind::Quit => theme::FG_DIM,
+                            crate::app::ActionKind::Reinit => theme::RED,
+                            _ => theme::FG,
+                        };
+                        ListItem::new(Line::from(vec![
+                            Span::styled("    ", Style::default()),
+                            Span::styled(label.as_str(), Style::default().fg(color)),
+                        ]))
+                    }
                 }
             }
         })
@@ -1005,6 +1022,27 @@ fn render_actions(f: &mut Frame, app: &App, area: Rect) {
 
     let list = List::new(items);
     f.render_widget(list, inner);
+
+    // Scroll indicators
+    if scroll_offset > 0 {
+        let arrow = Span::styled(" ▲ ", Style::default().fg(theme::FG_DIM));
+        f.render_widget(
+            Paragraph::new(Line::from(arrow)).alignment(Alignment::Right),
+            Rect { x: inner.x, y: inner.y, width: inner.width, height: 1 },
+        );
+    }
+    if end < total {
+        let arrow = Span::styled(" ▼ ", Style::default().fg(theme::FG_DIM));
+        f.render_widget(
+            Paragraph::new(Line::from(arrow)).alignment(Alignment::Right),
+            Rect {
+                x: inner.x,
+                y: inner.y + inner.height.saturating_sub(1),
+                width: inner.width,
+                height: 1,
+            },
+        );
+    }
 }
 
 // ── Footer ─────────────────────────────────────────────────────────────────
@@ -1036,7 +1074,7 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
     } else if app.is_multi_project() {
         let branding = format!(
             "{:>width$}",
-            "⚛ sodium v0.1",
+            "⚛ sodium v26.02.24",
             width = area.width.saturating_sub(65) as usize
         );
         Line::from(vec![
@@ -1053,7 +1091,7 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
     } else {
         let branding = format!(
             "{:>width$}",
-            "⚛ sodium v0.1",
+            "⚛ sodium v26.02.24",
             width = area.width.saturating_sub(45) as usize
         );
         Line::from(vec![
