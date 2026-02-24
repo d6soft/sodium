@@ -37,6 +37,40 @@ const GLITCH_CHARS: &[char] = &[
     '█', '▓', '░', '▒', '╳', '◈', '◇', '▲', '●', '╬', '┼', '╪', '∎', '⊗', '⌬',
 ];
 
+const OS_ICON_LINUX: &[&str] = &[
+    "  .--. ",
+    " |o_o |",
+    " |:_/ |",
+    " //  \\ \\",
+    "(|    |)",
+];
+const OS_ICON_MACOS: &[&str] = &[
+    "   _   ",
+    "  ( )  ",
+    " / _ \\ ",
+    " \\   / ",
+    "  \\_/  ",
+];
+const OS_ICON_WINDOWS: &[&str] = &[
+    "┌──┬──┐",
+    "│  │  │",
+    "├──┼──┤",
+    "│  │  │",
+    "└──┴──┘",
+];
+
+fn os_icon() -> &'static [&'static str] {
+    if cfg!(target_os = "linux") {
+        OS_ICON_LINUX
+    } else if cfg!(target_os = "macos") {
+        OS_ICON_MACOS
+    } else if cfg!(target_os = "windows") {
+        OS_ICON_WINDOWS
+    } else {
+        OS_ICON_LINUX
+    }
+}
+
 // ── Main render ────────────────────────────────────────────────────────────
 
 pub fn render(f: &mut Frame, app: &App) {
@@ -88,16 +122,8 @@ fn render_project_list(f: &mut Frame, app: &App, area: Rect) {
     render_project_list_footer(f, app, chunks[2]);
 }
 
-fn render_project_list_header(f: &mut Frame, app: &App, area: Rect) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(6), // Logo
-            Constraint::Length(3), // Summary bar
-        ])
-        .split(area);
-
-    // Logo (reuse same rendering with glitch)
+fn render_logo(f: &mut Frame, app: &App, area: Rect) {
+    // Build logo lines (with optional glitch effect)
     let logo_lines: Vec<Line> = if app.glitch.active {
         SODIUM_LOGO
             .iter()
@@ -151,7 +177,43 @@ fn render_project_list_header(f: &mut Frame, app: &App, area: Rect) {
     )));
 
     let logo_widget = Paragraph::new(all_lines).alignment(Alignment::Center);
-    f.render_widget(logo_widget, chunks[0]);
+    f.render_widget(logo_widget, area);
+
+    // OS icon in top-right corner
+    let icon = os_icon();
+    let icon_width = icon.iter().map(|l| l.chars().count()).max().unwrap_or(7) as u16;
+    let icon_height = icon.len() as u16;
+    if area.width > icon_width + 1 && area.height >= icon_height {
+        let icon_rect = Rect::new(
+            area.x + area.width - icon_width - 1,
+            area.y,
+            icon_width,
+            icon_height,
+        );
+        let icon_lines: Vec<Line> = icon
+            .iter()
+            .map(|l| {
+                Line::from(Span::styled(
+                    *l,
+                    Style::default().fg(theme::FG_DIM),
+                ))
+            })
+            .collect();
+        let icon_widget = Paragraph::new(icon_lines);
+        f.render_widget(icon_widget, icon_rect);
+    }
+}
+
+fn render_project_list_header(f: &mut Frame, app: &App, area: Rect) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(6), // Logo
+            Constraint::Length(3), // Summary bar
+        ])
+        .split(area);
+
+    render_logo(f, app, chunks[0]);
 
     // Summary bar
     let total = app.projects.len();
@@ -391,7 +453,7 @@ fn render_project_list_footer(f: &mut Frame, _app: &App, area: Rect) {
 
     let line = Line::from(vec![
         Span::styled(
-            "  [q]",
+            "  [Esc]",
             Style::default()
                 .fg(theme::CYAN)
                 .add_modifier(Modifier::BOLD),
@@ -435,61 +497,7 @@ fn render_header(f: &mut Frame, app: &App, area: Rect) {
         ])
         .split(area);
 
-    // Logo
-    let logo_lines: Vec<Line> = if app.glitch.active {
-        SODIUM_LOGO
-            .iter()
-            .map(|line| {
-                let chars: Vec<Span> = line
-                    .chars()
-                    .map(|c| {
-                        if c != ' ' && rand::random::<f32>() < 0.3 {
-                            let gc = GLITCH_CHARS[rand::random::<usize>() % GLITCH_CHARS.len()];
-                            Span::styled(
-                                gc.to_string(),
-                                Style::default()
-                                    .fg(if rand::random::<bool>() {
-                                        theme::MAGENTA
-                                    } else {
-                                        theme::RED
-                                    })
-                                    .add_modifier(Modifier::BOLD),
-                            )
-                        } else {
-                            Span::styled(
-                                c.to_string(),
-                                Style::default()
-                                    .fg(theme::CYAN)
-                                    .add_modifier(Modifier::BOLD),
-                            )
-                        }
-                    })
-                    .collect();
-                Line::from(chars)
-            })
-            .collect()
-    } else {
-        SODIUM_LOGO
-            .iter()
-            .map(|line| {
-                Line::from(Span::styled(
-                    *line,
-                    Style::default()
-                        .fg(theme::CYAN)
-                        .add_modifier(Modifier::BOLD),
-                ))
-            })
-            .collect()
-    };
-
-    let mut all_lines = logo_lines;
-    all_lines.push(Line::from(Span::styled(
-        app.subtitle(),
-        Style::default().fg(theme::FG_DIM),
-    )));
-
-    let logo_widget = Paragraph::new(all_lines).alignment(Alignment::Center);
-    f.render_widget(logo_widget, chunks[0]);
+    render_logo(f, app, chunks[0]);
 
     // GITCON bar
     let gitcon = &app.repo_info.gitcon;
@@ -1173,7 +1181,7 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
             width = area.width.saturating_sub(45) as usize
         );
         Line::from(vec![
-            Span::styled("  [q]", Style::default().fg(theme::CYAN).add_modifier(Modifier::BOLD)),
+            Span::styled("  [Esc]", Style::default().fg(theme::CYAN).add_modifier(Modifier::BOLD)),
             Span::styled(" quit  ", Style::default().fg(theme::FG_DIM)),
             Span::styled("[Enter]", Style::default().fg(theme::CYAN).add_modifier(Modifier::BOLD)),
             Span::styled(" select  ", Style::default().fg(theme::FG_DIM)),

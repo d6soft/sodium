@@ -144,6 +144,13 @@ Quick wins à fort impact pour l'usage multi-projet au quotidien.
 - [ ] Diff avant merge (résumé des fichiers impactés)
 - [ ] Aide à la résolution de conflits (liste des fichiers, ouverture éditeur)
 
+### 4.4 Contrôle d'accès SSH par repo
+- [ ] Déclarer les utilisateurs dans `sodium.toml` (`[[server.users]]`)
+- [ ] Par projet : accès `private` (owner seul, `700`) ou `team` (groupe partagé, `770 + g+s`)
+- [ ] Menu action "Access control" dans la vue projet avec sélecteur private/team
+- [ ] Exécution via SSH : `chgrp`/`chmod` sur le bare repo distant
+- [ ] Affichage du statut accès dans la liste projets (🔒/👥)
+
 ---
 
 ## Phase 5 — Fonctionnalités avancées

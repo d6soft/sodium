@@ -82,7 +82,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                 match &app.input_mode {
                     InputMode::Normal => match app.screen {
                         Screen::ProjectList => match key.code {
-                            KeyCode::Char('q') | KeyCode::Char('Q') => {
+                            KeyCode::Esc => {
                                 app.should_quit = true;
                             }
                             KeyCode::Char('c')
@@ -97,7 +97,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                             _ => {}
                         },
                         Screen::ProjectDetail => match key.code {
-                            KeyCode::Char('q') | KeyCode::Char('Q') => {
+                            KeyCode::Esc | KeyCode::Backspace => {
                                 if app.is_multi_project() {
                                     app.back_to_list();
                                 } else {
@@ -108,11 +108,6 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                                 if key.modifiers.contains(KeyModifiers::CONTROL) =>
                             {
                                 app.should_quit = true;
-                            }
-                            KeyCode::Esc | KeyCode::Backspace => {
-                                if app.is_multi_project() {
-                                    app.back_to_list();
-                                }
                             }
                             KeyCode::Up | KeyCode::Char('k') => app.menu_up(),
                             KeyCode::Down | KeyCode::Char('j') => app.menu_down(),
