@@ -17,6 +17,7 @@ pub enum Screen {
 pub enum MenuItem {
     Action(ActionKind, String),
     Separator,
+    SectionHeader(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -112,6 +113,8 @@ pub struct App {
     pub project_index: usize,
     // Commit review state
     pub commit_review: Option<CommitReviewState>,
+    // Flow hint
+    pub flow_hint: Option<(ActionKind, String)>,
 }
 
 const SUBTITLES: &[&str] = &[
@@ -148,6 +151,7 @@ impl App {
             projects: Vec::new(),
             project_index: 0,
             commit_review: None,
+            flow_hint: None,
         };
         app.discover_projects();
         app
@@ -177,6 +181,7 @@ impl App {
             projects: Vec::new(),
             project_index: 0,
             commit_review: None,
+            flow_hint: None,
         };
         app.rebuild_menu();
         app
@@ -221,41 +226,45 @@ impl App {
 
     fn rebuild_menu(&mut self) {
         let on_main = self.repo_info.current_branch == "main";
-        let branch = &self.repo_info.current_branch;
+        let branch = self.repo_info.current_branch.clone();
 
+        // ── Flow : numbered steps ──
         let mut items = vec![
-            MenuItem::Action(ActionKind::NewBranch, "New branch".into()),
+            MenuItem::SectionHeader("FLOW".into()),
+            MenuItem::Action(ActionKind::NewBranch, "1. New branch".into()),
             MenuItem::Action(
                 ActionKind::Commit,
-                format!("Commit [{}]", branch),
+                format!("2. Commit [{}]", branch),
             ),
-            MenuItem::Action(ActionKind::SwitchBranch, "Switch branch".into()),
-            MenuItem::Action(ActionKind::Fetch, "Fetch (refresh)".into()),
-            MenuItem::Action(ActionKind::Pull, "Pull origin".into()),
-            MenuItem::Action(ActionKind::CheckoutRemote, "Checkout remote branch".into()),
-            MenuItem::Separator,
         ];
 
-        if on_main {
+        if !on_main {
+            items.push(MenuItem::Action(
+                ActionKind::Backup,
+                format!("3. Backup {} -> origin", branch),
+            ));
             items.push(MenuItem::Action(
                 ActionKind::Merge,
-                "Merge into main".into(),
+                format!("4. Merge {} -> main", branch),
             ));
         } else {
             items.push(MenuItem::Action(
                 ActionKind::Merge,
-                format!("Merge {} -> main", branch),
-            ));
-            items.push(MenuItem::Action(
-                ActionKind::Backup,
-                format!("Backup {} -> origin", branch),
+                "3. Merge into main".into(),
             ));
         }
 
         items.push(MenuItem::Action(
             ActionKind::Push,
-            "Push main -> origin".into(),
+            format!("{}. Push main -> origin", if on_main { "4" } else { "5" }),
         ));
+
+        // ── Extras ──
+        items.push(MenuItem::SectionHeader("+".into()));
+        items.push(MenuItem::Action(ActionKind::SwitchBranch, "Switch branch".into()));
+        items.push(MenuItem::Action(ActionKind::Fetch, "Fetch origin (refresh)".into()));
+        items.push(MenuItem::Action(ActionKind::Pull, "Pull origin".into()));
+        items.push(MenuItem::Action(ActionKind::CheckoutRemote, "Checkout remote branch".into()));
         items.push(MenuItem::Action(ActionKind::History, "Export history".into()));
         items.push(MenuItem::Separator);
         items.push(MenuItem::Action(
@@ -271,6 +280,18 @@ impl App {
             self.menu_index = 0;
         }
         self.skip_separators_down();
+
+        // Compute flow hint
+        let dirty = self.repo_info.files.modified + self.repo_info.files.untracked + self.repo_info.files.staged;
+        self.flow_hint = if on_main && self.repo_info.ahead > 0 {
+            Some((ActionKind::Push, "Push main to origin".into()))
+        } else if on_main {
+            Some((ActionKind::NewBranch, "Create a new feature branch".into()))
+        } else if dirty > 0 {
+            Some((ActionKind::Commit, "Commit your changes".into()))
+        } else {
+            Some((ActionKind::Merge, format!("Merge {} into main", branch)))
+        };
     }
 
     pub fn menu_up(&mut self) {
@@ -282,7 +303,7 @@ impl App {
                 break;
             }
             self.menu_index -= 1;
-            if matches!(self.menu_items[self.menu_index], MenuItem::Action(..)) {
+            if Self::is_selectable(&self.menu_items[self.menu_index]) {
                 break;
             }
         }
@@ -297,7 +318,7 @@ impl App {
                 break;
             }
             self.menu_index += 1;
-            if matches!(self.menu_items[self.menu_index], MenuItem::Action(..)) {
+            if Self::is_selectable(&self.menu_items[self.menu_index]) {
                 break;
             }
         }
@@ -310,6 +331,10 @@ impl App {
             }
             self.menu_index += 1;
         }
+    }
+
+    fn is_selectable(item: &MenuItem) -> bool {
+        matches!(item, MenuItem::Action(..))
     }
 
     pub fn selected_action(&self) -> Option<ActionKind> {
@@ -1236,9 +1261,9 @@ impl App {
             }
         }
 
-        // Push to github
+        // Force push to github (mirror — origin is source of truth)
         let push = Command::new("git")
-            .args(["push", "github", branch])
+            .args(["push", "--force", "github", branch])
             .current_dir(&self.repo_path)
             .output();
 

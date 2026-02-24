@@ -992,6 +992,18 @@ fn render_actions(f: &mut Frame, app: &App, area: Rect) {
         .map(|(vi, item)| {
             let i = scroll_offset + vi;
             match item {
+                MenuItem::SectionHeader(title) => {
+                    ListItem::new(Line::from(vec![
+                        Span::styled("  ── ", Style::default().fg(theme::BORDER)),
+                        Span::styled(
+                            title.as_str(),
+                            Style::default()
+                                .fg(theme::CYAN)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(" ──────────────────────────", Style::default().fg(theme::BORDER)),
+                    ]))
+                }
                 MenuItem::Separator => {
                     ListItem::new(Line::from(Span::styled(
                         "    ─────────────────────────────────",
@@ -1000,6 +1012,7 @@ fn render_actions(f: &mut Frame, app: &App, area: Rect) {
                 }
                 MenuItem::Action(kind, label) => {
                     let is_selected = i == app.menu_index;
+                    let is_hint = app.flow_hint.as_ref().map(|(k, _)| k == kind).unwrap_or(false);
                     if is_selected {
                         ListItem::new(Line::from(vec![
                             Span::styled(
@@ -1013,6 +1026,18 @@ fn render_actions(f: &mut Frame, app: &App, area: Rect) {
                                 Style::default()
                                     .fg(theme::FG_BRIGHT)
                                     .add_modifier(Modifier::BOLD),
+                            ),
+                        ]))
+                    } else if is_hint {
+                        ListItem::new(Line::from(vec![
+                            Span::styled(
+                                "  ▶ ",
+                                Style::default().fg(theme::CYAN),
+                            ),
+                            Span::styled(
+                                label.as_str(),
+                                Style::default()
+                                    .fg(theme::CYAN),
                             ),
                         ]))
                     } else {
@@ -1052,6 +1077,22 @@ fn render_actions(f: &mut Frame, app: &App, area: Rect) {
                 width: inner.width,
                 height: 1,
             },
+        );
+    }
+
+    // Flow hint line at the bottom of the block
+    if let Some((_, ref hint)) = app.flow_hint {
+        let hint_y = area.y + area.height.saturating_sub(1);
+        let hint_line = Line::from(vec![
+            Span::styled(" ▶ ", Style::default().fg(theme::CYAN)),
+            Span::styled(hint.as_str(), Style::default().fg(theme::CYAN)),
+            Span::raw(" "),
+        ]);
+        let hint_width = hint_line.width() as u16;
+        let hint_x = area.x + area.width.saturating_sub(hint_width + 1);
+        f.render_widget(
+            Paragraph::new(hint_line),
+            Rect { x: hint_x, y: hint_y, width: hint_width + 1, height: 1 },
         );
     }
 }
