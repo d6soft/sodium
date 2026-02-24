@@ -116,7 +116,11 @@ Quick wins à fort impact pour l'usage multi-projet au quotidien.
 - [ ] Barre de progression globale
 - [ ] Résumé à la fin : "12 fetched, 2 errors"
 
-### 3.6 Recherche / filtre dans la liste
+### 3.6 Card Activity optionnelle
+- [ ] Option `show_activity = true/false` dans `sodium.toml`
+- [ ] Si désactivée, redistribuer l'espace aux cards BRANCHS et FILES
+
+### 3.7 Recherche / filtre dans la liste
 - [ ] `/` ouvre un champ de recherche, filtre les projets par nom en temps réel
 - [ ] Esc pour annuler le filtre
 - [ ] Highlight du match dans le nom

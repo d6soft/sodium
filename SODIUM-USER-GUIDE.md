@@ -87,6 +87,7 @@ dev_root = "~/dev"
 remote_host = "git-PM7"
 remote_path = "repos"
 pull_rebase = true
+activity_show = true
 ```
 
 | Clé | Description | Defaut |
@@ -95,6 +96,7 @@ pull_rebase = true
 | `remote_host` | Serveur SSH pour les bare repos | `git-PM7` |
 | `remote_path` | Chemin sur le serveur vers les repos bare | `repos` |
 | `pull_rebase` | `true` = pull --rebase, `false` = pull merge | `true` |
+| `activity_show` | Afficher le panneau ACTIVITY (heatmap) | `true` |
 
 **Mode multi-projet** : si `dev_root` existe et contient des dossiers, Sodium affiche la liste de tous vos projets au lancement.
 
@@ -109,6 +111,7 @@ dev_root = "~/dev"
 remote_host = "git-PM7"
 remote_path = "repos"
 pull_rebase = true
+activity_show = true
 
 [projects.sodium]
 github = "git@github.com:user/sodium.git"

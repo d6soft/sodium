@@ -12,6 +12,9 @@ fn default_remote_path() -> String {
 fn default_pull_rebase() -> bool {
     true
 }
+fn default_activity_show() -> bool {
+    true
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectConfig {
@@ -27,6 +30,8 @@ pub struct SodiumConfig {
     pub remote_path: String,
     #[serde(default = "default_pull_rebase")]
     pub pull_rebase: bool,
+    #[serde(default = "default_activity_show")]
+    pub activity_show: bool,
     #[serde(default)]
     pub projects: Option<HashMap<String, ProjectConfig>>,
 }
@@ -77,6 +82,7 @@ pub fn load_config() -> Option<SodiumConfig> {
             remote_host: default_remote_host(),
             remote_path: default_remote_path(),
             pull_rebase: default_pull_rebase(),
+            activity_show: default_activity_show(),
             projects: None,
         };
         if let Some(parent) = path.parent() {

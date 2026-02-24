@@ -532,16 +532,57 @@ fn render_body(f: &mut Frame, app: &App, area: Rect) {
     let body = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(4),  // Repo name + branch + remote (bordered, 2 lines)
-            Constraint::Length(12), // Middle row (branches + activity + files)
-            Constraint::Min(8),    // Actions menu
+            Constraint::Length(4), // Repo name + branch + remote (bordered, 2 lines)
+            Constraint::Min(8),   // Main zone: 2 columns
         ])
         .horizontal_margin(1)
         .split(area);
 
     render_repo_bar(f, app, body[0]);
-    render_middle_row(f, app, body[1]);
-    render_actions(f, app, body[2]);
+
+    // Main zone: ACTIONS (left 50%) | BRANCHS + FILES + ACTIVITY (right 50%)
+    let cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(50), // Actions
+            Constraint::Percentage(50), // Right column
+        ])
+        .split(body[1]);
+
+    render_actions(f, app, cols[0]);
+
+    // Right column: BRANCHS + FILES + optional ACTIVITY
+    let show_activity = app
+        .config
+        .as_ref()
+        .map(|c| c.activity_show)
+        .unwrap_or(true);
+
+    if show_activity {
+        let right_rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(8), // Branches (compact)
+                Constraint::Length(5), // Files (compact)
+                Constraint::Min(5),   // Activity (flexible, heatmap)
+            ])
+            .split(cols[1]);
+
+        render_branches(f, app, right_rows[0]);
+        render_status(f, app, right_rows[1]);
+        render_activity(f, app, right_rows[2]);
+    } else {
+        let right_rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(5),   // Branches (takes remaining space)
+                Constraint::Length(5), // Files (compact)
+            ])
+            .split(cols[1]);
+
+        render_branches(f, app, right_rows[0]);
+        render_status(f, app, right_rows[1]);
+    }
 }
 
 fn render_repo_bar(f: &mut Frame, app: &App, area: Rect) {
@@ -598,21 +639,6 @@ fn render_repo_bar(f: &mut Frame, app: &App, area: Rect) {
 
     let line2 = Line::from(remote_spans);
     f.render_widget(Paragraph::new(vec![line1, line2]), inner);
-}
-
-fn render_middle_row(f: &mut Frame, app: &App, area: Rect) {
-    let cols = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(40), // Branches
-            Constraint::Percentage(35), // Activity
-            Constraint::Percentage(25), // Status
-        ])
-        .split(area);
-
-    render_branches(f, app, cols[0]);
-    render_activity(f, app, cols[1]);
-    render_status(f, app, cols[2]);
 }
 
 fn render_branches(f: &mut Frame, app: &App, area: Rect) {

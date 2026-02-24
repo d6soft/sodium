@@ -40,6 +40,7 @@ dev_root = "~/dev"
 remote_host = "git-PM7"
 remote_path = "repos"
 pull_rebase = true
+activity_show = true
 
 # Miroir GitHub (optionnel, par projet)
 [projects.sodium]
