@@ -1,6 +1,6 @@
 [package]
 name = "sodium"
-version = "26.2.24"
+version = "26.2.25"
 edition = "2021"
 description = "Git TUI dashboard — dark ops style"
 

@@ -26,11 +26,11 @@ fn truncate_str(s: &str, max_chars: usize) -> String {
 // ── ASCII art header ───────────────────────────────────────────────────────
 
 const SODIUM_LOGO: &[&str] = &[
-    "◉━━━ ░▒▓       ███████  ██████  ██████  ██ ██    ██ ███    ███       ▓▒░ ━━━◉",
-    "┃    ░▒▓       ██      ██    ██ ██   ██ ██ ██    ██ ████  ████       ▓▒░    ┃",
-    "◎━▸▸ ░▒▓       ███████ ██    ██ ██   ██ ██ ██    ██ ██ ████ ██       ▓▒░ ◂◂━◎",
-    "┃    ░▒▓            ██ ██    ██ ██   ██ ██ ██    ██ ██  ██  ██       ▓▒░    ┃",
-    "◉━━━ ░▒▓       ███████  ██████  ██████  ██  ██████  ██      ██       ▓▒░ ━━━◉",
+    "███████  ██████  ██████  ██ ██    ██ ███    ███",
+    "██      ██    ██ ██   ██ ██ ██    ██ ████  ████",
+    "███████ ██    ██ ██   ██ ██ ██    ██ ██ ████ ██",
+    "     ██ ██    ██ ██   ██ ██ ██    ██ ██  ██  ██",
+    "███████  ██████  ██████  ██  ██████  ██      ██",
 ];
 
 const GLITCH_CHARS: &[char] = &[
@@ -59,15 +59,15 @@ const OS_ICON_WINDOWS: &[&str] = &[
     "└──┴──┘",
 ];
 
-fn os_icon() -> &'static [&'static str] {
+fn os_icon() -> (&'static [&'static str], Color) {
     if cfg!(target_os = "linux") {
-        OS_ICON_LINUX
+        (OS_ICON_LINUX, theme::ORANGE)
     } else if cfg!(target_os = "macos") {
-        OS_ICON_MACOS
+        (OS_ICON_MACOS, theme::RED)
     } else if cfg!(target_os = "windows") {
-        OS_ICON_WINDOWS
+        (OS_ICON_WINDOWS, theme::BLUE)
     } else {
-        OS_ICON_LINUX
+        (OS_ICON_LINUX, theme::ORANGE)
     }
 }
 
@@ -180,7 +180,7 @@ fn render_logo(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(logo_widget, area);
 
     // OS icon in top-right corner
-    let icon = os_icon();
+    let (icon, icon_color) = os_icon();
     let icon_width = icon.iter().map(|l| l.chars().count()).max().unwrap_or(7) as u16;
     let icon_height = icon.len() as u16;
     if area.width > icon_width + 1 && area.height >= icon_height {
@@ -195,7 +195,7 @@ fn render_logo(f: &mut Frame, app: &App, area: Rect) {
             .map(|l| {
                 Line::from(Span::styled(
                     *l,
-                    Style::default().fg(theme::FG_DIM),
+                    Style::default().fg(icon_color),
                 ))
             })
             .collect();
