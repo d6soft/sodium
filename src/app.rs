@@ -1,5 +1,6 @@
 use crate::config::SodiumConfig;
 use crate::git::{self, FileEntry, ProjectSummary, RepoInfo};
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -20,7 +21,7 @@ pub enum MenuItem {
     SectionHeader(String),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ActionKind {
     NewBranch,
     Commit,
@@ -75,6 +76,18 @@ pub enum SelectPurpose {
     CheckoutRemoteBranch,
 }
 
+// ── Pending operation (for pre-render before blocking) ────────────────
+
+#[derive(Debug, Clone)]
+pub enum PendingOp {
+    Fetch,
+    Pull,
+    Push,
+    Backup,
+    Merge(String),
+    Reinit(String),
+}
+
 // ── Notification ───────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
@@ -115,6 +128,11 @@ pub struct App {
     pub commit_review: Option<CommitReviewState>,
     // Flow hint
     pub flow_hint: Option<(ActionKind, String)>,
+    // Actions completed in current session (for ✓ indicators)
+    pub done_actions: HashSet<ActionKind>,
+    // Running action indicator (shown before blocking op)
+    pub running_action: Option<(ActionKind, String)>,
+    pub pending_op: Option<PendingOp>,
 }
 
 const SUBTITLES: &[&str] = &[
@@ -152,6 +170,9 @@ impl App {
             project_index: 0,
             commit_review: None,
             flow_hint: None,
+            done_actions: HashSet::new(),
+            running_action: None,
+            pending_op: None,
         };
         app.discover_projects();
         app
@@ -182,6 +203,9 @@ impl App {
             project_index: 0,
             commit_review: None,
             flow_hint: None,
+            done_actions: HashSet::new(),
+            running_action: None,
+            pending_op: None,
         };
         app.rebuild_menu();
         app
@@ -288,6 +312,10 @@ impl App {
         } else if on_main {
             Some((ActionKind::NewBranch, "Create a new feature branch".into()))
         } else if dirty > 0 {
+            Some((ActionKind::Commit, "Commit your changes".into()))
+        } else if self.done_actions.contains(&ActionKind::NewBranch)
+            && !self.done_actions.contains(&ActionKind::Commit)
+        {
             Some((ActionKind::Commit, "Commit your changes".into()))
         } else {
             Some((ActionKind::Merge, format!("Merge {} into main", branch)))
@@ -419,10 +447,12 @@ impl App {
                 };
             }
             ActionKind::Fetch => {
-                self.do_fetch();
+                self.running_action = Some((ActionKind::Fetch, "Fetch origin en cours...".into()));
+                self.pending_op = Some(PendingOp::Fetch);
             }
             ActionKind::Pull => {
-                self.do_pull();
+                self.running_action = Some((ActionKind::Pull, "Pull origin en cours...".into()));
+                self.pending_op = Some(PendingOp::Pull);
             }
             ActionKind::CheckoutRemote => {
                 let branches: Vec<String> = self.repo_info.branches.iter()
@@ -464,14 +494,18 @@ impl App {
                 } else {
                     // On feature: merge into main directly
                     let branch = self.repo_info.current_branch.clone();
-                    self.do_merge(&branch);
+                    self.running_action = Some((ActionKind::Merge, format!("Merge {} -> main en cours...", branch)));
+                    self.pending_op = Some(PendingOp::Merge(branch));
                 }
             }
             ActionKind::Push => {
-                self.do_push();
+                self.running_action = Some((ActionKind::Push, "Push main -> origin en cours...".into()));
+                self.pending_op = Some(PendingOp::Push);
             }
             ActionKind::Backup => {
-                self.do_backup();
+                let branch = self.repo_info.current_branch.clone();
+                self.running_action = Some((ActionKind::Backup, format!("Backup {} -> origin en cours...", branch)));
+                self.pending_op = Some(PendingOp::Backup);
             }
             ActionKind::History => {
                 self.do_history();
@@ -496,7 +530,10 @@ impl App {
             InputMode::TextInput { purpose, .. } => match purpose {
                 InputPurpose::BranchName => self.do_new_branch(&buf),
                 InputPurpose::CommitMessage => self.do_commit(&buf),
-                InputPurpose::RepoName => self.do_reinit(&buf),
+                InputPurpose::RepoName => {
+                    self.running_action = Some((ActionKind::Reinit, "Reinitialize en cours...".into()));
+                    self.pending_op = Some(PendingOp::Reinit(buf));
+                }
             },
             InputMode::Confirm { purpose, .. } => match purpose {
                 ConfirmPurpose::Reinit => {
@@ -518,12 +555,29 @@ impl App {
                     let selected = selected.clone();
                     match purpose {
                         SelectPurpose::SwitchBranch => self.do_switch_branch(&selected),
-                        SelectPurpose::MergeBranch => self.do_merge(&selected),
+                        SelectPurpose::MergeBranch => {
+                            self.running_action = Some((ActionKind::Merge, format!("Merge {} -> main en cours...", selected)));
+                            self.pending_op = Some(PendingOp::Merge(selected));
+                        }
                         SelectPurpose::CheckoutRemoteBranch => self.do_checkout_remote(&selected),
                     }
                 }
             }
             InputMode::Normal | InputMode::CommitReview | InputMode::CommitSelect => {}
+        }
+    }
+
+    pub fn run_pending_op(&mut self) {
+        if let Some(op) = self.pending_op.take() {
+            match op {
+                PendingOp::Fetch => self.do_fetch(),
+                PendingOp::Pull => self.do_pull(),
+                PendingOp::Push => self.do_push(),
+                PendingOp::Backup => self.do_backup(),
+                PendingOp::Merge(branch) => self.do_merge(&branch),
+                PendingOp::Reinit(name) => self.do_reinit(&name),
+            }
+            self.running_action = None;
         }
     }
 
@@ -682,6 +736,7 @@ impl App {
         if self.config.is_none() {
             return;
         }
+        self.done_actions.clear();
         self.discover_projects();
         self.screen = Screen::ProjectList;
     }
@@ -707,8 +762,15 @@ impl App {
             .output();
         match output {
             Ok(o) if o.status.success() => {
+                self.done_actions.insert(ActionKind::NewBranch);
                 self.notify(format!("[INTEL] Branch '{}' created & active", name), false);
                 self.refresh();
+                // Pre-select Commit as next step
+                if let Some(idx) = self.menu_items.iter().position(|item| {
+                    matches!(item, MenuItem::Action(ActionKind::Commit, _))
+                }) {
+                    self.menu_index = idx;
+                }
             }
             Ok(o) => {
                 let err = String::from_utf8_lossy(&o.stderr);
@@ -761,8 +823,15 @@ impl App {
             .output();
         match output {
             Ok(o) if o.status.success() => {
+                self.done_actions.insert(ActionKind::Commit);
                 self.notify(format!("[SIGINT] Commit recorded: {}", msg), false);
                 self.refresh();
+                // Pre-select Backup as next step
+                if let Some(idx) = self.menu_items.iter().position(|item| {
+                    matches!(item, MenuItem::Action(ActionKind::Backup, _))
+                }) {
+                    self.menu_index = idx;
+                }
             }
             Ok(o) => {
                 let err = String::from_utf8_lossy(&o.stderr);
@@ -911,6 +980,7 @@ impl App {
             .output();
         match output {
             Ok(o) if o.status.success() => {
+                self.done_actions.insert(ActionKind::Merge);
                 self.notify(format!("[SIGINT] '{}' merged into main", branch), false);
                 self.refresh();
             }
@@ -930,6 +1000,7 @@ impl App {
             .output();
         match output {
             Ok(o) if o.status.success() => {
+                self.done_actions.insert(ActionKind::Push);
                 let cleaned = self.cleanup_merged_branches();
                 let gh_suffix = self.mirror_to_github("main").unwrap_or_default();
                 if cleaned > 0 {
@@ -966,6 +1037,7 @@ impl App {
             .output();
         match output {
             Ok(o) if o.status.success() => {
+                self.done_actions.insert(ActionKind::Backup);
                 let gh_suffix = self.mirror_to_github(&branch).unwrap_or_default();
                 self.notify(format!("[SIGINT] {} backed up to origin{}", branch, gh_suffix), false);
                 self.refresh();
@@ -1179,6 +1251,7 @@ impl App {
                     format!("[SIGINT] Repo reinitialized → {}", remote_url),
                     false,
                 );
+                self.menu_index = 0;
                 self.refresh();
             }
             Ok(o) => {

@@ -1047,6 +1047,15 @@ fn render_actions(f: &mut Frame, app: &App, area: Rect) {
                 MenuItem::Action(kind, label) => {
                     let is_selected = i == app.menu_index;
                     let is_hint = app.flow_hint.as_ref().map(|(k, _)| k == kind).unwrap_or(false);
+                    let is_running = app.running_action.as_ref().map(|(k, _)| k == kind).unwrap_or(false);
+                    let is_done = app.done_actions.contains(kind);
+                    let suffix_span = if is_running {
+                        Span::styled(" ⟳", Style::default().fg(theme::ORANGE).add_modifier(Modifier::BOLD))
+                    } else if is_done {
+                        Span::styled(" ✓", Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD))
+                    } else {
+                        Span::raw("")
+                    };
                     if is_selected {
                         ListItem::new(Line::from(vec![
                             Span::styled(
@@ -1061,6 +1070,7 @@ fn render_actions(f: &mut Frame, app: &App, area: Rect) {
                                     .fg(theme::FG_BRIGHT)
                                     .add_modifier(Modifier::BOLD),
                             ),
+                            suffix_span.clone(),
                         ]))
                     } else if is_hint {
                         ListItem::new(Line::from(vec![
@@ -1073,6 +1083,7 @@ fn render_actions(f: &mut Frame, app: &App, area: Rect) {
                                 Style::default()
                                     .fg(theme::CYAN),
                             ),
+                            suffix_span.clone(),
                         ]))
                     } else {
                         let color = match kind {
@@ -1083,6 +1094,7 @@ fn render_actions(f: &mut Frame, app: &App, area: Rect) {
                         ListItem::new(Line::from(vec![
                             Span::styled("    ", Style::default()),
                             Span::styled(label.as_str(), Style::default().fg(color)),
+                            suffix_span.clone(),
                         ]))
                     }
                 }
@@ -1142,8 +1154,16 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    // Notification or default footer
-    let line = if let Some(ref notif) = app.notification {
+    // Running action, notification, or default footer
+    let line = if let Some((_, ref msg)) = app.running_action {
+        Line::from(vec![
+            Span::styled("  ⟳ ", Style::default().fg(theme::ORANGE).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                msg.as_str(),
+                Style::default().fg(theme::ORANGE).add_modifier(Modifier::BOLD),
+            ),
+        ])
+    } else if let Some(ref notif) = app.notification {
         let blink = app.tick % 6 < 4;
         let color = if notif.is_error { theme::RED } else { theme::GREEN };
         if blink {

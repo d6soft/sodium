@@ -156,6 +156,12 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
             }
         }
 
+        // If a pending op was queued, re-render to show running indicator, then execute
+        if app.pending_op.is_some() {
+            terminal.draw(|f| ui::render(f, &app))?;
+            app.run_pending_op();
+        }
+
         if last_tick.elapsed() >= TICK_RATE {
             app.tick();
             last_tick = Instant::now();
