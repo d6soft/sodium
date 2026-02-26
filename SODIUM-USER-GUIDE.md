@@ -88,6 +88,7 @@ remote_host = "git-PM7"
 remote_path = "repos"
 pull_rebase = true
 activity_show = true
+exclude = ["fonts", "Apple_keys"]
 ```
 
 | Clé | Description | Defaut |
@@ -97,6 +98,7 @@ activity_show = true
 | `remote_path` | Chemin sur le serveur vers les repos bare | `repos` |
 | `pull_rebase` | `true` = pull --rebase, `false` = pull merge | `true` |
 | `activity_show` | Afficher le panneau ACTIVITY (heatmap) | `true` |
+| `exclude` | Liste de dossiers a exclure de la liste des projets | `[]` |
 
 **Mode multi-projet** : si `dev_root` existe et contient des dossiers, Sodium affiche la liste de tous vos projets au lancement.
 
@@ -112,6 +114,7 @@ remote_host = "git-PM7"
 remote_path = "repos"
 pull_rebase = true
 activity_show = true
+exclude = ["fonts", "Apple_keys"]
 
 [projects.sodium]
 github = "git@github.com:user/sodium.git"
@@ -500,7 +503,10 @@ Lors d'un `Reinitialize repo`, Sodium genere un `.gitignore` adapte en detectant
 ## FAQ
 
 **Q : Sodium ne detecte pas mes projets**
-R : Verifiez que `dev_root` dans `~/.config/sodium/sodium.toml` pointe vers le bon dossier. Les dossiers caches (`.hidden`) sont ignores.
+R : Verifiez que `dev_root` dans `~/.config/sodium/sodium.toml` pointe vers le bon dossier. Les dossiers caches (`.hidden`) et ceux listes dans `exclude` sont ignores.
+
+**Q : Comment masquer des dossiers de la liste des projets ?**
+R : Ajoutez `exclude = ["dossier1", "dossier2"]` dans `~/.config/sodium/sodium.toml`. Les noms correspondent aux dossiers dans `dev_root`.
 
 **Q : "Pull origin" affiche "has no remote"**
 R : La branche courante n'a jamais ete pushee. Utilisez d'abord "Backup" pour la pousser sur origin, ou travaillez sur une branche qui existe deja sur le remote.
