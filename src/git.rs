@@ -170,6 +170,7 @@ pub struct RepoInfo {
     pub activity_grid: Vec<DayActivity>,
     pub gitcon: GitconLevel,
     pub total_commits: usize,
+    pub ahead_of_main: usize,
 }
 
 impl Default for RepoInfo {
@@ -193,6 +194,7 @@ impl Default for RepoInfo {
             activity_grid: vec![DayActivity::default(); 91],
             gitcon: GitconLevel::Gitcon5,
             total_commits: 0,
+            ahead_of_main: 0,
         }
     }
 }
@@ -270,6 +272,13 @@ pub fn gather_repo_info(path: &Path) -> Option<RepoInfo> {
     // ── Ahead / Behind ─────────────────────────────────────────────────
     let (ahead, behind) = calc_ahead_behind(&repo, &current_branch);
 
+    // ── Ahead of main (feature branch commits) ─────────────────────────
+    let ahead_of_main = if current_branch != "main" {
+        calc_ahead_of_main(&repo, &current_branch)
+    } else {
+        0
+    };
+
     // ── File status ────────────────────────────────────────────────────
     let files = calc_file_status(&repo);
 
@@ -308,6 +317,7 @@ pub fn gather_repo_info(path: &Path) -> Option<RepoInfo> {
         activity_grid,
         gitcon,
         total_commits,
+        ahead_of_main,
     })
 }
 
@@ -321,6 +331,20 @@ fn calc_ahead_behind(repo: &Repository, branch: &str) -> (usize, usize) {
         Err(_) => return (0, 0),
     };
     repo.graph_ahead_behind(local, remote).unwrap_or((0, 0))
+}
+
+fn calc_ahead_of_main(repo: &Repository, branch: &str) -> usize {
+    let local = match repo.revparse_single(&format!("refs/heads/{branch}")) {
+        Ok(obj) => obj.id(),
+        Err(_) => return 0,
+    };
+    let main = match repo.revparse_single("refs/heads/main") {
+        Ok(obj) => obj.id(),
+        Err(_) => return 0,
+    };
+    repo.graph_ahead_behind(local, main)
+        .map(|(ahead, _)| ahead)
+        .unwrap_or(0)
 }
 
 fn calc_file_status(repo: &Repository) -> FileStatus {

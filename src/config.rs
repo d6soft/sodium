@@ -33,6 +33,8 @@ pub struct SodiumConfig {
     #[serde(default = "default_activity_show")]
     pub activity_show: bool,
     #[serde(default)]
+    pub exclude: Vec<String>,
+    #[serde(default)]
     pub projects: Option<HashMap<String, ProjectConfig>>,
 }
 
@@ -83,6 +85,7 @@ pub fn load_config() -> Option<SodiumConfig> {
             remote_path: default_remote_path(),
             pull_rebase: default_pull_rebase(),
             activity_show: default_activity_show(),
+            exclude: Vec::new(),
             projects: None,
         };
         if let Some(parent) = path.parent() {

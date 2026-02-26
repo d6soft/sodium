@@ -447,7 +447,7 @@ fn render_project_list_footer(f: &mut Frame, _app: &App, area: Rect) {
 
     let branding = format!(
         "{:>width$}",
-        "⚛ sodium v26.02.24",
+        concat!("⚛ sodium v", env!("CARGO_PKG_VERSION")),
         width = area.width.saturating_sub(55) as usize
     );
 
@@ -1046,7 +1046,6 @@ fn render_actions(f: &mut Frame, app: &App, area: Rect) {
                 }
                 MenuItem::Action(kind, label) => {
                     let is_selected = i == app.menu_index;
-                    let is_hint = app.flow_hint.as_ref().map(|(k, _)| k == kind).unwrap_or(false);
                     let is_running = app.running_action.as_ref().map(|(k, _)| k == kind).unwrap_or(false);
                     let is_done = app.done_actions.contains(kind);
                     let suffix_span = if is_running {
@@ -1069,19 +1068,6 @@ fn render_actions(f: &mut Frame, app: &App, area: Rect) {
                                 Style::default()
                                     .fg(theme::FG_BRIGHT)
                                     .add_modifier(Modifier::BOLD),
-                            ),
-                            suffix_span.clone(),
-                        ]))
-                    } else if is_hint {
-                        ListItem::new(Line::from(vec![
-                            Span::styled(
-                                "  ▶ ",
-                                Style::default().fg(theme::CYAN),
-                            ),
-                            Span::styled(
-                                label.as_str(),
-                                Style::default()
-                                    .fg(theme::CYAN),
                             ),
                             suffix_span.clone(),
                         ]))
@@ -1180,7 +1166,7 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
     } else if app.is_multi_project() {
         let branding = format!(
             "{:>width$}",
-            "⚛ sodium v26.02.24",
+            concat!("⚛ sodium v", env!("CARGO_PKG_VERSION")),
             width = area.width.saturating_sub(65) as usize
         );
         Line::from(vec![
@@ -1197,7 +1183,7 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
     } else {
         let branding = format!(
             "{:>width$}",
-            "⚛ sodium v26.02.24",
+            concat!("⚛ sodium v", env!("CARGO_PKG_VERSION")),
             width = area.width.saturating_sub(45) as usize
         );
         Line::from(vec![

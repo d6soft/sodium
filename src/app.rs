@@ -686,12 +686,16 @@ impl App {
                 if !path.is_dir() {
                     continue;
                 }
+                let name = match path.file_name().and_then(|n| n.to_str()) {
+                    Some(n) => n,
+                    None => continue,
+                };
                 // Skip hidden directories
-                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    if name.starts_with('.') {
-                        continue;
-                    }
-                } else {
+                if name.starts_with('.') {
+                    continue;
+                }
+                // Skip excluded directories
+                if config.exclude.iter().any(|e| e == name) {
                     continue;
                 }
                 projects.push(git::gather_project_summary(&path));
@@ -721,6 +725,14 @@ impl App {
         if let Some(proj) = self.projects.get(self.project_index) {
             self.repo_path = proj.path.clone();
             self.repo_info = git::gather_repo_info(&self.repo_path).unwrap_or_default();
+            self.done_actions.clear();
+            let on_main = self.repo_info.current_branch == "main";
+            if !on_main {
+                self.done_actions.insert(ActionKind::NewBranch);
+                if self.repo_info.ahead_of_main > 0 {
+                    self.done_actions.insert(ActionKind::Commit);
+                }
+            }
             self.rebuild_menu();
             self.menu_index = 0;
             self.screen = Screen::ProjectDetail;

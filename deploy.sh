@@ -17,6 +17,23 @@ echo -e "  ${CYAN}${BOLD}⚛ SODIUM — deploy${RESET}"
 echo -e "  ${DIM}──────────────────────────${RESET}"
 echo ""
 
+# ── Version bump (YY.MM.DDII) ─────────────────────────────────────────
+CARGO_TOML="${PROJECT_DIR}/Cargo.toml"
+TODAY_PREFIX="$(date +%y).$(date +%-m).$(date +%-d)"
+CURRENT_VERSION=$(grep -oP '^version = "\K[^"]+' "$CARGO_TOML")
+
+if [[ "$CURRENT_VERSION" == ${TODAY_PREFIX}* ]]; then
+    # Same day: increment the 2-digit suffix
+    CURRENT_SEQ="${CURRENT_VERSION##${TODAY_PREFIX}}"
+    NEXT_SEQ=$(printf "%02d" $(( 10#${CURRENT_SEQ} + 1 )))
+else
+    NEXT_SEQ="01"
+fi
+
+NEW_VERSION="${TODAY_PREFIX}${NEXT_SEQ}"
+sed -i "s/^version = \".*\"/version = \"${NEW_VERSION}\"/" "$CARGO_TOML"
+echo -e "  ${DIM}Version: ${NEW_VERSION}${RESET}"
+
 # ── Clean ───────────────────────────────────────────────────────────────
 echo -e "  ${DIM}Cleaning target/...${RESET}"
 rm -rf "${PROJECT_DIR}/target"
@@ -39,6 +56,7 @@ fi
 
 echo ""
 echo -e "  ${GREEN}${BOLD}Deployed.${RESET}"
+echo -e "  ${DIM}Version: ${NEW_VERSION}${RESET}"
 echo -e "  ${DIM}Binary : ${INSTALL_DIR}/${BIN_NAME}${RESET}"
 echo -e "  ${DIM}Command: ${BIN_NAME}${RESET}"
 echo ""
