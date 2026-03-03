@@ -290,18 +290,30 @@ fn render_project_cards(f: &mut Frame, app: &App, area: Rect) {
         0
     };
 
+    // Find where no-repo projects start
+    let separator_pos = app.projects.iter().position(|p| !p.has_git);
+    let has_no_repo = separator_pos.is_some();
+
     let items: Vec<ListItem> = app
         .projects
         .iter()
         .enumerate()
         .skip(scroll_offset)
         .take(visible_height)
-        .map(|(i, proj)| {
-            let is_selected = i == app.project_index;
-            let arrow = if is_selected { "▸" } else { " " };
+        .flat_map(|(i, proj)| {
+            let mut result = Vec::new();
+
+            // Insert separator before first no-repo project
+            if has_no_repo && Some(i) == separator_pos {
+                result.push(ListItem::new(Line::from(Span::styled(
+                    "    ─────────────────────────────────",
+                    Style::default().fg(theme::BORDER),
+                ))));
+            }
 
             if !proj.has_git {
-                // No git repo
+                let is_selected = i == app.project_index;
+                let arrow = if is_selected { "▸" } else { " " };
                 let line = Line::from(vec![
                     Span::styled(
                         format!("  {} ", arrow),
@@ -317,7 +329,7 @@ fn render_project_cards(f: &mut Frame, app: &App, area: Rect) {
                             .fg(if is_selected {
                                 theme::FG_BRIGHT
                             } else {
-                                theme::FG
+                                theme::FG_DIM
                             })
                             .add_modifier(if is_selected {
                                 Modifier::BOLD
@@ -326,19 +338,17 @@ fn render_project_cards(f: &mut Frame, app: &App, area: Rect) {
                             }),
                     ),
                     Span::styled(
-                        "—       ",
-                        Style::default().fg(theme::FG_DIM),
-                    ),
-                    Span::styled(
                         "NO REPO",
                         Style::default()
-                            .fg(theme::RED)
-                            .add_modifier(Modifier::BOLD),
+                            .fg(theme::RED),
                     ),
                 ]);
-                ListItem::new(line)
+                result.push(ListItem::new(line));
+                result
             } else {
                 // Git repo with details
+                let is_selected = i == app.project_index;
+                let arrow = if is_selected { "▸" } else { " " };
                 let status_span = if proj.dirty_count == 0
                     && proj.ahead == 0
                     && proj.behind == 0
@@ -394,7 +404,7 @@ fn render_project_cards(f: &mut Frame, app: &App, area: Rect) {
                             }),
                     ),
                     Span::styled(
-                        format!("{:<10}", proj.branch),
+                        format!("{:<20}", proj.branch),
                         Style::default()
                             .fg(theme::MAGENTA)
                             .add_modifier(Modifier::BOLD),
@@ -409,7 +419,8 @@ fn render_project_cards(f: &mut Frame, app: &App, area: Rect) {
                         Style::default().fg(theme::FG_DIM),
                     ),
                 ]);
-                ListItem::new(line)
+                result.push(ListItem::new(line));
+                result
             }
         })
         .collect();
@@ -570,26 +581,30 @@ fn render_body(f: &mut Frame, app: &App, area: Rect) {
         let right_rows = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(8), // Branches (compact)
-                Constraint::Length(5), // Files (compact)
-                Constraint::Min(5),   // Activity (flexible, heatmap)
+                Constraint::Length(8),  // Branches (compact)
+                Constraint::Length(5),  // Files (compact)
+                Constraint::Length(14), // Activity (heatmap)
+                Constraint::Min(4),    // Messages
             ])
             .split(cols[1]);
 
         render_branches(f, app, right_rows[0]);
         render_status(f, app, right_rows[1]);
         render_activity(f, app, right_rows[2]);
+        render_messages(f, app, right_rows[3]);
     } else {
         let right_rows = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Min(5),   // Branches (takes remaining space)
+                Constraint::Length(8), // Branches
                 Constraint::Length(5), // Files (compact)
+                Constraint::Min(4),   // Messages
             ])
             .split(cols[1]);
 
         render_branches(f, app, right_rows[0]);
         render_status(f, app, right_rows[1]);
+        render_messages(f, app, right_rows[2]);
     }
 }
 
@@ -982,6 +997,54 @@ fn render_status(f: &mut Frame, app: &App, area: Rect) {
             Span::styled(" CONFLICT", Style::default().fg(theme::RED)),
         ]));
     }
+
+    f.render_widget(Paragraph::new(lines), inner);
+}
+
+fn render_messages(f: &mut Frame, app: &App, area: Rect) {
+    let block = Block::default()
+        .title(Line::from(vec![
+            Span::styled(" ☰ ", Style::default().fg(theme::CYAN)),
+            Span::styled("MESSAGES", theme::title_style()),
+            Span::raw(" "),
+        ]))
+        .borders(Borders::ALL)
+        .border_style(theme::border_style())
+        .style(Style::default().bg(theme::BG_CARD));
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    if app.messages.is_empty() {
+        let empty = Paragraph::new(Span::styled(
+            "  No messages yet",
+            Style::default().fg(theme::FG_DIM),
+        ));
+        f.render_widget(empty, inner);
+        return;
+    }
+
+    let visible = inner.height as usize;
+    // Show most recent messages (scroll to bottom)
+    let skip = app.messages.len().saturating_sub(visible);
+
+    let lines: Vec<Line> = app
+        .messages
+        .iter()
+        .skip(skip)
+        .take(visible)
+        .map(|notif| {
+            let color = if notif.is_error { theme::RED } else { theme::GREEN };
+            let icon = if notif.is_error { "✗" } else { "✓" };
+            Line::from(vec![
+                Span::styled(format!("  {} ", icon), Style::default().fg(color)),
+                Span::styled(
+                    &notif.message,
+                    Style::default().fg(color),
+                ),
+            ])
+        })
+        .collect();
 
     f.render_widget(Paragraph::new(lines), inner);
 }

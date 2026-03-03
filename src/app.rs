@@ -133,6 +133,8 @@ pub struct App {
     // Running action indicator (shown before blocking op)
     pub running_action: Option<(ActionKind, String)>,
     pub pending_op: Option<PendingOp>,
+    // Persistent message log (shown in Messages card)
+    pub messages: Vec<Notification>,
 }
 
 const SUBTITLES: &[&str] = &[
@@ -173,6 +175,7 @@ impl App {
             done_actions: HashSet::new(),
             running_action: None,
             pending_op: None,
+            messages: Vec::new(),
         };
         app.discover_projects();
         app
@@ -206,6 +209,7 @@ impl App {
             done_actions: HashSet::new(),
             running_action: None,
             pending_op: None,
+            messages: Vec::new(),
         };
         app.rebuild_menu();
         app
@@ -241,8 +245,14 @@ impl App {
     }
 
     pub fn notify(&mut self, message: impl Into<String>, is_error: bool) {
+        let msg = message.into();
         self.notification = Some(Notification {
-            message: message.into(),
+            message: msg.clone(),
+            is_error,
+            tick: self.tick,
+        });
+        self.messages.push(Notification {
+            message: msg,
             is_error,
             tick: self.tick,
         });
@@ -702,7 +712,14 @@ impl App {
             }
         }
 
-        projects.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        // Sort: repos first (alphabetical), then no-repo (alphabetical)
+        projects.sort_by(|a, b| {
+            match (a.has_git, b.has_git) {
+                (true, false) => std::cmp::Ordering::Less,
+                (false, true) => std::cmp::Ordering::Greater,
+                _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+            }
+        });
         self.projects = projects;
         if self.project_index >= self.projects.len() {
             self.project_index = 0;
@@ -723,9 +740,11 @@ impl App {
 
     pub fn enter_project(&mut self) {
         if let Some(proj) = self.projects.get(self.project_index) {
+            let is_no_repo = !proj.has_git;
             self.repo_path = proj.path.clone();
             self.repo_info = git::gather_repo_info(&self.repo_path).unwrap_or_default();
             self.done_actions.clear();
+            self.messages.clear();
             let on_main = self.repo_info.current_branch == "main";
             if !on_main {
                 self.done_actions.insert(ActionKind::NewBranch);
@@ -734,7 +753,12 @@ impl App {
                 }
             }
             self.rebuild_menu();
-            self.menu_index = 0;
+            self.menu_index = if is_no_repo {
+                self.menu_items.iter().position(|item| matches!(item, MenuItem::Action(ActionKind::Reinit, _))).unwrap_or(0)
+            } else {
+                0
+            };
+            self.skip_separators_down();
             self.screen = Screen::ProjectDetail;
             // Trigger glitch effect on transition
             self.glitch = GlitchState {
@@ -749,6 +773,7 @@ impl App {
             return;
         }
         self.done_actions.clear();
+        self.messages.clear();
         self.discover_projects();
         self.screen = Screen::ProjectList;
     }
