@@ -463,6 +463,100 @@ fn calc_gitcon(files: &FileStatus, ahead: usize, behind: usize) -> GitconLevel {
     GitconLevel::Gitcon1
 }
 
+// ── Server info (remote disk + repo sizes) ────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct ServerInfo {
+    pub host: String,
+    pub disk_total: String,
+    pub disk_used: String,
+    pub disk_available: String,
+    pub disk_use_percent: u8,
+    pub repos: Vec<(String, String)>, // (name, size) sorted by size desc
+    pub error: Option<String>,
+}
+
+pub fn gather_server_info(host: &str, path: &str) -> ServerInfo {
+    let cmd = format!(
+        "df -h / | tail -1; echo '---'; du -sh ~/{path}/*.git 2>/dev/null | sort -rh"
+    );
+    let output = Command::new("ssh")
+        .args(["-o", "ConnectTimeout=3", host, &cmd])
+        .output();
+
+    let output = match output {
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).to_string(),
+        Ok(o) => {
+            let err = String::from_utf8_lossy(&o.stderr).trim().to_string();
+            return ServerInfo {
+                host: host.to_string(),
+                disk_total: String::new(),
+                disk_used: String::new(),
+                disk_available: String::new(),
+                disk_use_percent: 0,
+                repos: Vec::new(),
+                error: Some(if err.is_empty() { "SSH failed".into() } else { err }),
+            };
+        }
+        Err(e) => {
+            return ServerInfo {
+                host: host.to_string(),
+                disk_total: String::new(),
+                disk_used: String::new(),
+                disk_available: String::new(),
+                disk_use_percent: 0,
+                repos: Vec::new(),
+                error: Some(format!("SSH error: {e}")),
+            };
+        }
+    };
+
+    let mut parts = output.splitn(2, "---\n");
+    let df_line = parts.next().unwrap_or("").trim();
+    let du_part = parts.next().unwrap_or("").trim();
+
+    // Parse df line: filesystem  size  used  avail  use%  mount
+    let df_cols: Vec<&str> = df_line.split_whitespace().collect();
+    let (disk_total, disk_used, disk_available, disk_use_percent) = if df_cols.len() >= 5 {
+        let pct = df_cols[4].trim_end_matches('%').parse::<u8>().unwrap_or(0);
+        (
+            df_cols[1].to_string(),
+            df_cols[2].to_string(),
+            df_cols[3].to_string(),
+            pct,
+        )
+    } else {
+        (String::new(), String::new(), String::new(), 0)
+    };
+
+    // Parse du lines: size\tpath
+    let repos: Vec<(String, String)> = du_part
+        .lines()
+        .filter_map(|line| {
+            let mut cols = line.split('\t');
+            let size = cols.next()?.trim().to_string();
+            let repo_path = cols.next()?.trim();
+            let name = repo_path
+                .rsplit('/')
+                .next()?
+                .strip_suffix(".git")
+                .unwrap_or(repo_path.rsplit('/').next()?)
+                .to_string();
+            Some((name, size))
+        })
+        .collect();
+
+    ServerInfo {
+        host: host.to_string(),
+        disk_total,
+        disk_used,
+        disk_available,
+        disk_use_percent,
+        repos,
+        error: None,
+    }
+}
+
 // ── File entries for commit review ─────────────────────────────────────────
 
 fn parse_numstat(output: &str) -> HashMap<String, (usize, usize)> {

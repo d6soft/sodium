@@ -1,5 +1,5 @@
 use crate::config::SodiumConfig;
-use crate::git::{self, FileEntry, ProjectSummary, RepoInfo};
+use crate::git::{self, FileEntry, ProjectSummary, RepoInfo, ServerInfo};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::process::Command;
@@ -67,6 +67,7 @@ pub enum InputPurpose {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConfirmPurpose {
     Reinit,
+    DeleteBareRepo(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -74,6 +75,7 @@ pub enum SelectPurpose {
     SwitchBranch,
     MergeBranch,
     CheckoutRemoteBranch,
+    DeleteBareRepo,
 }
 
 // ── Pending operation (for pre-render before blocking) ────────────────
@@ -114,6 +116,7 @@ pub struct App {
     pub menu_index: usize,
     pub input_mode: InputMode,
     pub input_buffer: String,
+    pub input_cursor: usize,
     pub notification: Option<Notification>,
     pub tick: usize,
     pub glitch: GlitchState,
@@ -135,6 +138,10 @@ pub struct App {
     pub pending_op: Option<PendingOp>,
     // Persistent message log (shown in Messages card)
     pub messages: Vec<Notification>,
+    // Server disk info
+    pub server_info: Option<ServerInfo>,
+    // Focus: true = SERVER card, false = PROJECTS card
+    pub server_focused: bool,
 }
 
 const SUBTITLES: &[&str] = &[
@@ -158,6 +165,7 @@ impl App {
             menu_index: 0,
             input_mode: InputMode::Normal,
             input_buffer: String::new(),
+            input_cursor: 0,
             notification: None,
             tick: 0,
             glitch: GlitchState {
@@ -176,6 +184,8 @@ impl App {
             running_action: None,
             pending_op: None,
             messages: Vec::new(),
+            server_info: None,
+            server_focused: false,
         };
         app.discover_projects();
         app
@@ -192,6 +202,7 @@ impl App {
             menu_index: 0,
             input_mode: InputMode::Normal,
             input_buffer: String::new(),
+            input_cursor: 0,
             notification: None,
             tick: 0,
             glitch: GlitchState {
@@ -210,6 +221,8 @@ impl App {
             running_action: None,
             pending_op: None,
             messages: Vec::new(),
+            server_info: None,
+            server_focused: false,
         };
         app.rebuild_menu();
         app
@@ -418,6 +431,7 @@ impl App {
                     purpose: InputPurpose::BranchName,
                 };
                 self.input_buffer.clear();
+                self.input_cursor = 0;
             }
             ActionKind::Commit => {
                 if self.repo_info.files.modified + self.repo_info.files.untracked + self.repo_info.files.staged == 0 {
@@ -526,6 +540,7 @@ impl App {
                     purpose: ConfirmPurpose::Reinit,
                 };
                 self.input_buffer.clear();
+                self.input_cursor = 0;
             }
         }
     }
@@ -535,6 +550,7 @@ impl App {
         let buf = self.input_buffer.clone();
         self.input_mode = InputMode::Normal;
         self.input_buffer.clear();
+        self.input_cursor = 0;
 
         match mode {
             InputMode::TextInput { purpose, .. } => match purpose {
@@ -555,8 +571,16 @@ impl App {
                             purpose: InputPurpose::RepoName,
                         };
                         self.input_buffer = default_name;
+                        self.input_cursor = self.input_buffer.chars().count();
                     } else {
                         self.notify("[ABORT] Operation cancelled", false);
+                    }
+                }
+                ConfirmPurpose::DeleteBareRepo(name) => {
+                    if buf == "CONFIRM" {
+                        self.do_delete_bare_repo(&name);
+                    } else {
+                        self.notify("[ABORT] Deletion cancelled", false);
                     }
                 }
             },
@@ -570,6 +594,16 @@ impl App {
                             self.pending_op = Some(PendingOp::Merge(selected));
                         }
                         SelectPurpose::CheckoutRemoteBranch => self.do_checkout_remote(&selected),
+                        SelectPurpose::DeleteBareRepo => {
+                            // Extract repo name (before the "  (size)" part)
+                            let name = selected.split("  (").next().unwrap_or(&selected).to_string();
+                            self.input_mode = InputMode::Confirm {
+                                prompt: format!("Type CONFIRM to delete {}.git", name),
+                                purpose: ConfirmPurpose::DeleteBareRepo(name),
+                            };
+                            self.input_buffer.clear();
+                            self.input_cursor = 0;
+                        }
                     }
                 }
             }
@@ -594,6 +628,7 @@ impl App {
     pub fn cancel_input(&mut self) {
         self.input_mode = InputMode::Normal;
         self.input_buffer.clear();
+        self.input_cursor = 0;
         self.commit_review = None;
     }
 
@@ -655,6 +690,7 @@ impl App {
             purpose: InputPurpose::CommitMessage,
         };
         self.input_buffer.clear();
+        self.input_cursor = 0;
     }
 
     pub fn commit_enter_select(&mut self) {
@@ -678,6 +714,7 @@ impl App {
             purpose: InputPurpose::CommitMessage,
         };
         self.input_buffer.clear();
+        self.input_cursor = 0;
     }
 
     // ── Multi-project navigation ───────────────────────────────────────
@@ -724,6 +761,11 @@ impl App {
         if self.project_index >= self.projects.len() {
             self.project_index = 0;
         }
+        // Refresh server disk info
+        self.server_info = Some(git::gather_server_info(
+            &config.remote_host,
+            &config.remote_path,
+        ));
     }
 
     pub fn project_up(&mut self) {
@@ -780,6 +822,32 @@ impl App {
 
     pub fn refresh_projects(&mut self) {
         self.discover_projects();
+    }
+
+    pub fn toggle_server_focus(&mut self) {
+        self.server_focused = !self.server_focused;
+    }
+
+    pub fn open_server_repos(&mut self) {
+        let options: Vec<String> = match &self.server_info {
+            Some(info) if info.error.is_none() => {
+                info.repos.iter().map(|(name, size)| format!("{}  ({})", name, size)).collect()
+            }
+            _ => {
+                self.notify("[ERROR] Server info not available", true);
+                return;
+            }
+        };
+        if options.is_empty() {
+            self.notify("[INFO] No bare repos on server", false);
+            return;
+        }
+        self.input_mode = InputMode::Select {
+            prompt: "Select bare repo to delete".into(),
+            purpose: SelectPurpose::DeleteBareRepo,
+            options,
+            index: 0,
+        };
     }
 
     pub fn is_multi_project(&self) -> bool {
@@ -1162,6 +1230,33 @@ impl App {
                 false,
             ),
             Err(e) => self.notify(format!("[ERROR] {}", e), true),
+        }
+    }
+
+    fn do_delete_bare_repo(&mut self, name: &str) {
+        let (remote_host, remote_path) = match &self.config {
+            Some(cfg) => (cfg.remote_host.clone(), cfg.remote_path.clone()),
+            None => return,
+        };
+
+        let bare_path = format!("{}/{}.git", remote_path, name);
+        let result = Command::new("ssh")
+            .args([&remote_host, &format!("rm -rf {}", bare_path)])
+            .output();
+
+        match result {
+            Ok(o) if o.status.success() => {
+                self.notify(format!("[OK] Deleted {}.git", name), false);
+                // Refresh server info
+                self.server_info = Some(git::gather_server_info(&remote_host, &remote_path));
+            }
+            Ok(o) => {
+                let err = String::from_utf8_lossy(&o.stderr);
+                self.notify(format!("[ERROR] {}", err.trim()), true);
+            }
+            Err(e) => {
+                self.notify(format!("[ERROR] SSH: {}", e), true);
+            }
         }
     }
 

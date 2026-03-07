@@ -17,6 +17,12 @@ echo -e "  ${CYAN}${BOLD}⚛ SODIUM — deploy${RESET}"
 echo -e "  ${DIM}──────────────────────────${RESET}"
 echo ""
 
+# ── Kill running instance ──────────────────────────────────────────────
+if pkill -x "${BIN_NAME}" 2>/dev/null; then
+    echo -e "  ${DIM}Killed running ${BIN_NAME}${RESET}"
+    sleep 0.2
+fi
+
 # ── Version bump (YY.MM.DDII) ─────────────────────────────────────────
 CARGO_TOML="${PROJECT_DIR}/Cargo.toml"
 TODAY_PREFIX="$(date +%y).$(date +%-m).$(date +%-d)"

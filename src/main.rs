@@ -92,7 +92,14 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                             }
                             KeyCode::Up | KeyCode::Char('k') => app.project_up(),
                             KeyCode::Down | KeyCode::Char('j') => app.project_down(),
-                            KeyCode::Enter => app.enter_project(),
+                            KeyCode::Enter => {
+                                if app.server_focused {
+                                    app.open_server_repos();
+                                } else {
+                                    app.enter_project();
+                                }
+                            }
+                            KeyCode::Tab => app.toggle_server_focus(),
                             KeyCode::Char('r') => app.refresh_projects(),
                             _ => {}
                         },
@@ -119,11 +126,30 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                     InputMode::TextInput { .. } | InputMode::Confirm { .. } => match key.code {
                         KeyCode::Esc => app.cancel_input(),
                         KeyCode::Enter => app.submit_input(),
+                        KeyCode::Left => {
+                            if app.input_cursor > 0 {
+                                app.input_cursor -= 1;
+                            }
+                        }
+                        KeyCode::Right => {
+                            if app.input_cursor < app.input_buffer.chars().count() {
+                                app.input_cursor += 1;
+                            }
+                        }
                         KeyCode::Backspace => {
-                            app.input_buffer.pop();
+                            if app.input_cursor > 0 {
+                                let byte_idx = app.input_buffer.char_indices()
+                                    .nth(app.input_cursor - 1).map(|(i, _)| i).unwrap();
+                                app.input_buffer.remove(byte_idx);
+                                app.input_cursor -= 1;
+                            }
                         }
                         KeyCode::Char(c) => {
-                            app.input_buffer.push(c);
+                            let byte_idx = app.input_buffer.char_indices()
+                                .nth(app.input_cursor).map(|(i, _)| i)
+                                .unwrap_or(app.input_buffer.len());
+                            app.input_buffer.insert(byte_idx, c);
+                            app.input_cursor += 1;
                         }
                         _ => {}
                     },

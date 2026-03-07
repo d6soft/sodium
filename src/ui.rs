@@ -81,7 +81,12 @@ pub fn render(f: &mut Frame, app: &App) {
     f.render_widget(bg_block, area);
 
     match app.screen {
-        Screen::ProjectList => render_project_list(f, app, area),
+        Screen::ProjectList => {
+            render_project_list(f, app, area);
+            if app.input_mode != InputMode::Normal {
+                render_input_overlay(f, app, area);
+            }
+        }
         Screen::ProjectDetail => {
             // Main layout: header | body | footer
             let chunks = Layout::default()
@@ -112,14 +117,16 @@ fn render_project_list(f: &mut Frame, app: &App, area: Rect) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(9),  // Header (logo + summary bar)
+            Constraint::Length(4),  // Server card
             Constraint::Min(4),    // Project cards
             Constraint::Length(3), // Footer
         ])
         .split(area);
 
     render_project_list_header(f, app, chunks[0]);
-    render_project_cards(f, app, chunks[1]);
-    render_project_list_footer(f, app, chunks[2]);
+    render_server_card(f, app, chunks[1]);
+    render_project_cards(f, app, chunks[2]);
+    render_project_list_footer(f, app, chunks[3]);
 }
 
 fn render_logo(f: &mut Frame, app: &App, area: Rect) {
@@ -258,7 +265,119 @@ fn render_project_list_header(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(summary_widget, chunks[1]);
 }
 
+fn render_server_card(f: &mut Frame, app: &App, area: Rect) {
+    let border = if app.server_focused { theme::border_hi_style() } else { theme::border_style() };
+    let block = Block::default()
+        .title(Line::from(vec![
+            Span::styled(" ◆ ", Style::default().fg(theme::CYAN)),
+            Span::styled("SERVER", theme::title_style()),
+            Span::raw(" "),
+        ]))
+        .borders(Borders::ALL)
+        .border_style(border)
+        .style(Style::default().bg(theme::BG_CARD));
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let info = match &app.server_info {
+        Some(info) => info,
+        None => {
+            let msg = Paragraph::new(Span::styled(
+                "  Loading...",
+                Style::default().fg(theme::FG_DIM),
+            ));
+            f.render_widget(msg, inner);
+            return;
+        }
+    };
+
+    // Error state
+    if let Some(_err) = &info.error {
+        let line = Line::from(vec![
+            Span::styled(
+                format!("  {}  ", info.host),
+                Style::default().fg(theme::FG).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "[OFFLINE]",
+                Style::default().fg(theme::RED).add_modifier(Modifier::BOLD),
+            ),
+        ]);
+        let widget = Paragraph::new(line);
+        f.render_widget(widget, inner);
+        return;
+    }
+
+    // Color based on usage percent
+    let bar_color = if info.disk_use_percent < 70 {
+        theme::GREEN
+    } else if info.disk_use_percent <= 90 {
+        theme::ORANGE
+    } else {
+        theme::RED
+    };
+
+    // Build progress bar
+    let bar_width = 20usize;
+    let filled = (bar_width as u16 * info.disk_use_percent as u16 / 100) as usize;
+    let empty = bar_width - filled;
+    let bar_filled = "█".repeat(filled);
+    let bar_empty = "░".repeat(empty);
+
+    // Line 1: hostname + bar + used/total + percent
+    let line1 = Line::from(vec![
+        Span::styled(
+            format!("  {:<10}", info.host),
+            Style::default().fg(theme::FG).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(&bar_filled, Style::default().fg(bar_color)),
+        Span::styled(&bar_empty, Style::default().fg(theme::FG_DIM)),
+        Span::styled(
+            format!("  {} / {}  ({} free)  ", info.disk_used, info.disk_total, info.disk_available),
+            Style::default().fg(theme::FG),
+        ),
+        Span::styled(
+            format!("{}%", info.disk_use_percent),
+            Style::default().fg(bar_color).add_modifier(Modifier::BOLD),
+        ),
+    ]);
+
+    // Line 2: compact repo list
+    let mut repo_spans: Vec<Span> = vec![Span::raw("  ")];
+    let max_width = inner.width.saturating_sub(4) as usize;
+    let mut used_width = 0;
+    for (i, (name, size)) in info.repos.iter().enumerate() {
+        let entry = if i == 0 {
+            format!("{name} {size}")
+        } else {
+            format!("  {name} {size}")
+        };
+        if used_width + entry.len() > max_width {
+            repo_spans.push(Span::styled(" …", Style::default().fg(theme::FG_DIM)));
+            break;
+        }
+        used_width += entry.len();
+        if i > 0 {
+            repo_spans.push(Span::styled("  ", Style::default().fg(theme::FG_DIM)));
+        }
+        repo_spans.push(Span::styled(
+            name.clone(),
+            Style::default().fg(theme::FG_BRIGHT),
+        ));
+        repo_spans.push(Span::styled(
+            format!(" {size}"),
+            Style::default().fg(theme::FG_DIM),
+        ));
+    }
+    let line2 = Line::from(repo_spans);
+
+    let widget = Paragraph::new(vec![line1, line2]);
+    f.render_widget(widget, inner);
+}
+
 fn render_project_cards(f: &mut Frame, app: &App, area: Rect) {
+    let border = if !app.server_focused { theme::border_hi_style() } else { theme::border_style() };
     let block = Block::default()
         .title(Line::from(vec![
             Span::styled(" ◆ ", Style::default().fg(theme::CYAN)),
@@ -266,7 +385,7 @@ fn render_project_cards(f: &mut Frame, app: &App, area: Rect) {
             Span::raw(" "),
         ]))
         .borders(Borders::ALL)
-        .border_style(theme::border_hi_style())
+        .border_style(border)
         .style(Style::default().bg(theme::BG_CARD));
 
     let inner = block.inner(area);
@@ -490,7 +609,14 @@ fn render_project_list_footer(f: &mut Frame, _app: &App, area: Rect) {
                 .fg(theme::CYAN)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(" refresh", Style::default().fg(theme::FG_DIM)),
+        Span::styled(" refresh  ", Style::default().fg(theme::FG_DIM)),
+        Span::styled(
+            "[Tab]",
+            Style::default()
+                .fg(theme::CYAN)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(" server", Style::default().fg(theme::FG_DIM)),
         Span::styled(branding, Style::default().fg(theme::FG_DIM)),
     ]);
 
@@ -1291,15 +1417,26 @@ fn render_input_overlay(f: &mut Frame, app: &App, area: Rect) {
             f.render_widget(block, popup);
 
             let cursor_char = if app.tick % 6 < 4 { "█" } else { " " };
+            let byte_pos = app.input_buffer.char_indices()
+                .nth(app.input_cursor).map(|(i, _)| i)
+                .unwrap_or(app.input_buffer.len());
+            let before = &app.input_buffer[..byte_pos];
+            let after = &app.input_buffer[byte_pos..];
             let input_line = Line::from(vec![
                 Span::styled("  > ", Style::default().fg(theme::CYAN)),
                 Span::styled(
-                    &app.input_buffer,
+                    before,
                     Style::default()
                         .fg(theme::FG_BRIGHT)
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(cursor_char, Style::default().fg(theme::CYAN)),
+                Span::styled(
+                    after,
+                    Style::default()
+                        .fg(theme::FG_BRIGHT)
+                        .add_modifier(Modifier::BOLD),
+                ),
             ]);
 
             let help_line = Line::from(Span::styled(

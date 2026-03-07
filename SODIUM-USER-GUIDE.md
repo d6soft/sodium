@@ -157,13 +157,34 @@ L'ecran d'accueil quand le mode multi-projet est actif. Chaque projet affiche :
 
 **Barre de resume** en haut : `12 PROJECTS — 8 clean | 3 dirty | 1 no repo`
 
+#### Carte SERVER
+
+Affiche les informations du serveur SSH distant :
+- **Hostname** et barre de progression de l'espace disque (couleur verte/orange/rouge selon l'usage)
+- **Liste des bare repos** avec leurs tailles
+
+Utilisez `Tab` pour basculer le focus entre SERVER et PROJECTS (le cadre en surbrillance indique le focus actif). Quand SERVER est en focus, `Enter` ouvre un selecteur listant tous les bare repos du serveur. Vous pouvez alors selectionner un repo pour le supprimer (avec confirmation `CONFIRM`).
+
+#### Gestion des bare repos
+
+Depuis l'ecran liste, vous pouvez supprimer des bare repos obsoletes sur le serveur :
+
+1. `Tab` pour mettre le focus sur SERVER
+2. `Enter` pour ouvrir la liste des repos
+3. `↑`/`↓` pour selectionner le repo a supprimer
+4. `Enter` pour confirmer la selection
+5. Tapez `CONFIRM` puis `Enter` pour supprimer le repo
+
+**Attention** : la suppression est **irreversible**. Le bare repo est supprime via `rm -rf` sur le serveur SSH.
+
 #### Raccourcis
 
 | Touche | Action |
 |--------|--------|
 | `↑` / `k` | Projet precedent |
 | `↓` / `j` | Projet suivant |
-| `Enter` | Ouvrir le projet |
+| `Enter` | Ouvrir le projet (focus PROJECTS) / Gerer les repos (focus SERVER) |
+| `Tab` | Basculer le focus entre SERVER et PROJECTS |
 | `r` | Rafraichir la liste |
 | `q` | Quitter |
 | `Ctrl+C` | Quitter (forcer) |
