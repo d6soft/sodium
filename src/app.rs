@@ -62,6 +62,7 @@ pub enum InputPurpose {
     BranchName,
     CommitMessage,
     RepoName,
+    CloneTarget(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -75,7 +76,7 @@ pub enum SelectPurpose {
     SwitchBranch,
     MergeBranch,
     CheckoutRemoteBranch,
-    DeleteBareRepo,
+    ServerRepos,
 }
 
 // ── Pending operation (for pre-render before blocking) ────────────────
@@ -560,6 +561,7 @@ impl App {
                     self.running_action = Some((ActionKind::Reinit, "Reinitialize en cours...".into()));
                     self.pending_op = Some(PendingOp::Reinit(buf));
                 }
+                InputPurpose::CloneTarget(name) => self.do_clone_bare_repo(&name, &buf),
             },
             InputMode::Confirm { purpose, .. } => match purpose {
                 ConfirmPurpose::Reinit => {
@@ -594,15 +596,8 @@ impl App {
                             self.pending_op = Some(PendingOp::Merge(selected));
                         }
                         SelectPurpose::CheckoutRemoteBranch => self.do_checkout_remote(&selected),
-                        SelectPurpose::DeleteBareRepo => {
-                            // Extract repo name (before the "  (size)" part)
-                            let name = selected.split("  (").next().unwrap_or(&selected).to_string();
-                            self.input_mode = InputMode::Confirm {
-                                prompt: format!("Type CONFIRM to delete {}.git", name),
-                                purpose: ConfirmPurpose::DeleteBareRepo(name),
-                            };
-                            self.input_buffer.clear();
-                            self.input_cursor = 0;
+                        SelectPurpose::ServerRepos => {
+                            // Enter alone does nothing; use [c] clone or [d] delete
                         }
                     }
                 }
@@ -843,8 +838,8 @@ impl App {
             return;
         }
         self.input_mode = InputMode::Select {
-            prompt: "Select bare repo to delete".into(),
-            purpose: SelectPurpose::DeleteBareRepo,
+            prompt: "Server repos  [c] clone  [d] delete".into(),
+            purpose: SelectPurpose::ServerRepos,
             options,
             index: 0,
         };
@@ -852,6 +847,78 @@ impl App {
 
     pub fn is_multi_project(&self) -> bool {
         self.config.is_some()
+    }
+
+    pub fn server_repo_clone(&mut self) {
+        if let InputMode::Select { purpose: SelectPurpose::ServerRepos, options, index, .. } = &self.input_mode {
+            if let Some(selected) = options.get(*index) {
+                let name = selected.split("  (").next().unwrap_or(selected).to_string();
+                self.input_mode = InputMode::TextInput {
+                    prompt: format!("Clone target directory for {}", name),
+                    purpose: InputPurpose::CloneTarget(name),
+                };
+                self.input_buffer.clear();
+                self.input_cursor = 0;
+            }
+        }
+    }
+
+    pub fn server_repo_delete(&mut self) {
+        if let InputMode::Select { purpose: SelectPurpose::ServerRepos, options, index, .. } = &self.input_mode {
+            if let Some(selected) = options.get(*index) {
+                let name = selected.split("  (").next().unwrap_or(selected).to_string();
+                self.input_mode = InputMode::Confirm {
+                    prompt: format!("Type CONFIRM to delete {}.git", name),
+                    purpose: ConfirmPurpose::DeleteBareRepo(name),
+                };
+                self.input_buffer.clear();
+                self.input_cursor = 0;
+            }
+        }
+    }
+
+    fn do_clone_bare_repo(&mut self, name: &str, target_dir: &str) {
+        if target_dir.is_empty() {
+            self.notify("[ABORT] Empty target directory", true);
+            return;
+        }
+
+        let (remote_host, remote_path) = match &self.config {
+            Some(cfg) => (cfg.remote_host.clone(), cfg.remote_path.clone()),
+            None => return,
+        };
+
+        let url = format!("{}:{}/{}.git", remote_host, remote_path, name);
+        let expanded_target = if target_dir.starts_with('~') {
+            target_dir.replacen('~', &std::env::var("HOME").unwrap_or_default(), 1)
+        } else {
+            target_dir.to_string()
+        };
+        let dest = format!("{}/{}", expanded_target, name);
+
+        let result = Command::new("git")
+            .args(["clone", &url, &dest])
+            .output();
+
+        match result {
+            Ok(o) if o.status.success() => {
+                self.notify(format!("[OK] Cloned {} into {}", name, dest), false);
+                // Refresh projects if target is within dev_root
+                if let Some(cfg) = &self.config {
+                    let dev_root = cfg.dev_root_path().to_string_lossy().to_string();
+                    if expanded_target.starts_with(&dev_root) {
+                        self.discover_projects();
+                    }
+                }
+            }
+            Ok(o) => {
+                let err = String::from_utf8_lossy(&o.stderr);
+                self.notify(format!("[ERROR] {}", err.trim()), true);
+            }
+            Err(e) => {
+                self.notify(format!("[ERROR] git clone: {}", e), true);
+            }
+        }
     }
 
     // ── Git operations ──────────────────────────────────────────────────

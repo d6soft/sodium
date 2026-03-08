@@ -16,6 +16,7 @@ Sodium remplace les commandes git manuelles par une interface visuelle dans le t
 - **GITCON** — indicateur d'alerte visuel sur l'etat du repo (inspire du systeme DEFCON)
 - **Heatmap d'activite** — grille commits/merges/pulls sur 91 jours
 - **Export historique** — generation d'un rapport Markdown
+- **Clone / Delete server repos** — cloner ou supprimer des bare repos depuis le serveur SSH
 - **Reinitialisation** — reset complet d'un repo avec generation automatique du `.gitignore`
 
 ## Installation

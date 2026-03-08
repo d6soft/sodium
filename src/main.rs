@@ -15,7 +15,7 @@ use crossterm::{
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 
-use app::{App, InputMode, Screen};
+use app::{App, InputMode, Screen, SelectPurpose};
 
 const TICK_RATE: Duration = Duration::from_millis(100);
 
@@ -153,11 +153,13 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                         }
                         _ => {}
                     },
-                    InputMode::Select { .. } => match key.code {
+                    InputMode::Select { purpose, .. } => match key.code {
                         KeyCode::Esc => app.cancel_input(),
                         KeyCode::Enter => app.submit_input(),
                         KeyCode::Up | KeyCode::Char('k') => app.select_up(),
                         KeyCode::Down | KeyCode::Char('j') => app.select_down(),
+                        KeyCode::Char('c') if *purpose == SelectPurpose::ServerRepos => app.server_repo_clone(),
+                        KeyCode::Char('d') if *purpose == SelectPurpose::ServerRepos => app.server_repo_delete(),
                         _ => {}
                     },
                     InputMode::CommitReview => match key.code {

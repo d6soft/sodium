@@ -8,7 +8,7 @@ use ratatui::{
 
 use chrono::Datelike;
 
-use crate::app::{App, CommitReviewState, InputMode, MenuItem, Screen};
+use crate::app::{App, CommitReviewState, InputMode, MenuItem, Screen, SelectPurpose};
 use crate::theme;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -616,7 +616,7 @@ fn render_project_list_footer(f: &mut Frame, _app: &App, area: Rect) {
                 .fg(theme::CYAN)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(" server", Style::default().fg(theme::FG_DIM)),
+        Span::styled(" Server/Projects", Style::default().fg(theme::FG_DIM)),
         Span::styled(branding, Style::default().fg(theme::FG_DIM)),
     ]);
 
@@ -1459,10 +1459,10 @@ fn render_input_overlay(f: &mut Frame, app: &App, area: Rect) {
             }
             return;
         }
-        InputMode::Select { prompt, options, index, .. } => {
+        InputMode::Select { prompt, purpose, options, index } => {
             let item_count = options.len() as u16;
             let height = (item_count + 4).min(area.height.saturating_sub(4));
-            let width = 50u16.min(area.width.saturating_sub(4));
+            let width = 70u16.min(area.width.saturating_sub(4));
             let x = (area.width.saturating_sub(width)) / 2;
             let y = (area.height.saturating_sub(height)) / 2;
             let popup = Rect::new(x, y, width, height);
@@ -1521,8 +1521,12 @@ fn render_input_overlay(f: &mut Frame, app: &App, area: Rect) {
             let list = List::new(items);
             f.render_widget(list, inner_chunks[0]);
 
+            let help_text = match purpose {
+                SelectPurpose::ServerRepos => "  [c] clone  [d] delete  [Esc] cancel  [↑↓] navigate",
+                _ => "  [Enter] select  [Esc] cancel  [↑↓] navigate",
+            };
             let help = Paragraph::new(Line::from(Span::styled(
-                "  [Enter] select  [Esc] cancel  [↑↓] navigate",
+                help_text,
                 Style::default().fg(theme::FG_DIM),
             )));
             f.render_widget(help, inner_chunks[1]);
