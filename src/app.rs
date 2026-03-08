@@ -1,5 +1,6 @@
 use crate::config::SodiumConfig;
 use crate::git::{self, FileEntry, ProjectSummary, RepoInfo, ServerInfo};
+use crate::git_ops;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::process::Command;
@@ -924,108 +925,63 @@ impl App {
     // ── Git operations ──────────────────────────────────────────────────
 
     fn do_new_branch(&mut self, name: &str) {
-        if name.is_empty() {
-            self.notify("[ABORT] Empty branch name", true);
-            return;
-        }
-        let output = Command::new("git")
-            .args(["checkout", "-b", name])
-            .current_dir(&self.repo_path)
-            .output();
-        match output {
-            Ok(o) if o.status.success() => {
+        match git_ops::git_new_branch(&self.repo_path, name) {
+            Ok(msg) => {
                 self.done_actions.insert(ActionKind::NewBranch);
-                self.notify(format!("[INTEL] Branch '{}' created & active", name), false);
+                self.notify(format!("[INTEL] {}", msg), false);
                 self.refresh();
-                // Pre-select Commit as next step
                 if let Some(idx) = self.menu_items.iter().position(|item| {
                     matches!(item, MenuItem::Action(ActionKind::Commit, _))
                 }) {
                     self.menu_index = idx;
                 }
             }
-            Ok(o) => {
-                let err = String::from_utf8_lossy(&o.stderr);
-                self.notify(format!("[ERROR] {}", err.trim()), true);
-            }
             Err(e) => self.notify(format!("[ERROR] {}", e), true),
         }
     }
 
     fn do_commit(&mut self, msg: &str) {
-        if msg.is_empty() {
-            self.notify("[ABORT] Empty commit message", true);
-            return;
-        }
-
-        // Stage selected files (or all if no commit_review state)
-        if let Some(ref state) = self.commit_review {
-            let files_to_add: Vec<&str> = state
+        // Build file list from commit review state
+        let files: Vec<String> = if let Some(ref state) = self.commit_review {
+            let selected: Vec<String> = state
                 .files
                 .iter()
                 .zip(state.selected.iter())
                 .filter(|(_, &sel)| sel)
-                .map(|(f, _)| f.path.as_str())
+                .map(|(f, _)| f.path.clone())
                 .collect();
-
-            if files_to_add.is_empty() {
+            if selected.is_empty() {
                 self.notify("[ABORT] No files selected", true);
                 self.commit_review = None;
                 return;
             }
-
-            let mut args = vec!["add", "--"];
-            args.extend(files_to_add);
-            let _ = Command::new("git")
-                .args(&args)
-                .current_dir(&self.repo_path)
-                .output();
+            selected
         } else {
-            let _ = Command::new("git")
-                .args(["add", "-A"])
-                .current_dir(&self.repo_path)
-                .output();
-        }
+            Vec::new() // empty = add all
+        };
 
         self.commit_review = None;
 
-        let output = Command::new("git")
-            .args(["commit", "-m", msg])
-            .current_dir(&self.repo_path)
-            .output();
-        match output {
-            Ok(o) if o.status.success() => {
+        match git_ops::git_commit(&self.repo_path, msg, &files) {
+            Ok(m) => {
                 self.done_actions.insert(ActionKind::Commit);
-                self.notify(format!("[SIGINT] Commit recorded: {}", msg), false);
+                self.notify(format!("[SIGINT] {}", m), false);
                 self.refresh();
-                // Pre-select Backup as next step
                 if let Some(idx) = self.menu_items.iter().position(|item| {
                     matches!(item, MenuItem::Action(ActionKind::Backup, _))
                 }) {
                     self.menu_index = idx;
                 }
             }
-            Ok(o) => {
-                let err = String::from_utf8_lossy(&o.stderr);
-                self.notify(format!("[ERROR] {}", err.trim()), true);
-            }
             Err(e) => self.notify(format!("[ERROR] {}", e), true),
         }
     }
 
     fn do_switch_branch(&mut self, branch: &str) {
-        let output = Command::new("git")
-            .args(["checkout", branch])
-            .current_dir(&self.repo_path)
-            .output();
-        match output {
-            Ok(o) if o.status.success() => {
-                self.notify(format!("[INTEL] Switched to '{}'", branch), false);
+        match git_ops::git_switch_branch(&self.repo_path, branch) {
+            Ok(msg) => {
+                self.notify(format!("[INTEL] {}", msg), false);
                 self.refresh();
-            }
-            Ok(o) => {
-                let err = String::from_utf8_lossy(&o.stderr);
-                self.notify(format!("[ERROR] {}", err.trim()), true);
             }
             Err(e) => self.notify(format!("[ERROR] {}", e), true),
         }
@@ -1051,24 +1007,10 @@ impl App {
     }
 
     fn do_fetch(&mut self) {
-        let output = Command::new("git")
-            .args(["fetch", "--prune", "origin"])
-            .current_dir(&self.repo_path)
-            .output();
-        match output {
-            Ok(o) if o.status.success() => {
-                self.notify("[INTEL] Fetch complete — remote intel updated", false);
+        match git_ops::git_fetch(&self.repo_path) {
+            Ok(msg) => {
+                self.notify(format!("[INTEL] {}", msg), false);
                 self.refresh();
-            }
-            Ok(o) => {
-                let err = String::from_utf8_lossy(&o.stderr);
-                // git fetch writes to stderr even on success
-                if o.status.code() == Some(0) || err.contains("From") {
-                    self.notify("[INTEL] Fetch complete", false);
-                    self.refresh();
-                } else {
-                    self.notify(format!("[ERROR] {}", err.trim()), true);
-                }
             }
             Err(e) => self.notify(format!("[ERROR] {}", e), true),
         }
@@ -1077,7 +1019,6 @@ impl App {
     fn do_pull(&mut self) {
         let branch = self.repo_info.current_branch.clone();
 
-        // Check if branch exists on remote
         let has_remote = self.repo_info.branches.iter()
             .any(|b| b.name == branch && b.is_remote);
         if !has_remote {
@@ -1091,33 +1032,10 @@ impl App {
             .map(|c| c.pull_rebase)
             .unwrap_or(true);
 
-        let mut args = vec!["pull"];
-        if rebase {
-            args.push("--rebase");
-        }
-        args.push("origin");
-        args.push(&branch);
-
-        let output = Command::new("git")
-            .args(&args)
-            .current_dir(&self.repo_path)
-            .output();
-        match output {
-            Ok(o) if o.status.success() => {
-                let mode = if rebase { "rebase" } else { "merge" };
-                self.notify(
-                    format!("[INTEL] Pull complete ({}) — branch synced", mode),
-                    false,
-                );
+        match git_ops::git_pull(&self.repo_path, &branch, rebase) {
+            Ok(msg) => {
+                self.notify(format!("[INTEL] {}", msg), false);
                 self.refresh();
-            }
-            Ok(o) => {
-                let err = String::from_utf8_lossy(&o.stderr);
-                if err.contains("Already up to date") {
-                    self.notify("[INTEL] Already up to date", false);
-                } else {
-                    self.notify(format!("[ERROR] {}", err.trim()), true);
-                }
             }
             Err(e) => self.notify(format!("[ERROR] {}", e), true),
         }
@@ -1166,14 +1084,9 @@ impl App {
     }
 
     fn do_push(&mut self) {
-        let output = Command::new("git")
-            .args(["push", "origin", "main"])
-            .current_dir(&self.repo_path)
-            .output();
-        match output {
-            Ok(o) if o.status.success() => {
+        match git_ops::git_push_main(&self.repo_path) {
+            Ok((msg, cleaned)) => {
                 self.done_actions.insert(ActionKind::Push);
-                let cleaned = self.cleanup_merged_branches();
                 let gh_suffix = self.mirror_to_github("main").unwrap_or_default();
                 if cleaned > 0 {
                     self.notify(
@@ -1181,17 +1094,9 @@ impl App {
                         false,
                     );
                 } else {
-                    self.notify(format!("[SIGINT] Push complete — intel transmitted{}", gh_suffix), false);
+                    self.notify(format!("[SIGINT] {}{}", msg, gh_suffix), false);
                 }
                 self.refresh();
-            }
-            Ok(o) => {
-                let err = String::from_utf8_lossy(&o.stderr);
-                if err.contains("Everything up-to-date") {
-                    self.notify("[INTEL] Already synced — nothing to transmit", false);
-                } else {
-                    self.notify(format!("[ERROR] {}", err.trim()), true);
-                }
             }
             Err(e) => self.notify(format!("[ERROR] {}", e), true),
         }
@@ -1199,30 +1104,20 @@ impl App {
 
     fn do_backup(&mut self) {
         let branch = self.repo_info.current_branch.clone();
-        if branch == "main" {
-            self.notify("[ABORT] Use Push for main branch", true);
-            return;
-        }
-        let output = Command::new("git")
-            .args(["push", "origin", &branch])
-            .current_dir(&self.repo_path)
-            .output();
-        match output {
-            Ok(o) if o.status.success() => {
+        match git_ops::git_backup(&self.repo_path, &branch) {
+            Ok(msg) => {
                 self.done_actions.insert(ActionKind::Backup);
                 let gh_suffix = self.mirror_to_github(&branch).unwrap_or_default();
-                self.notify(format!("[SIGINT] {} backed up to origin{}", branch, gh_suffix), false);
+                self.notify(format!("[SIGINT] {}{}", msg, gh_suffix), false);
                 self.refresh();
             }
-            Ok(o) => {
-                let err = String::from_utf8_lossy(&o.stderr);
-                if err.contains("Everything up-to-date") {
-                    self.notify("[INTEL] Already backed up", false);
+            Err(e) => {
+                if e == "Use Push for main branch" {
+                    self.notify(format!("[ABORT] {}", e), true);
                 } else {
-                    self.notify(format!("[ERROR] {}", err.trim()), true);
+                    self.notify(format!("[ERROR] {}", e), true);
                 }
             }
-            Err(e) => self.notify(format!("[ERROR] {}", e), true),
         }
     }
 
@@ -1545,34 +1440,4 @@ impl App {
         }
     }
 
-    /// Delete local + remote branches already merged into main. Returns count cleaned.
-    fn cleanup_merged_branches(&mut self) -> usize {
-        let output = Command::new("git")
-            .args(["branch", "--merged", "main", "--format=%(refname:short)"])
-            .current_dir(&self.repo_path)
-            .output();
-
-        let mut cleaned = 0;
-        if let Ok(o) = output {
-            let branches = String::from_utf8_lossy(&o.stdout);
-            for branch in branches.lines() {
-                let branch = branch.trim();
-                if branch.is_empty() || branch == "main" {
-                    continue;
-                }
-                // Delete local
-                let _ = Command::new("git")
-                    .args(["branch", "-d", branch])
-                    .current_dir(&self.repo_path)
-                    .output();
-                // Delete remote
-                let _ = Command::new("git")
-                    .args(["push", "origin", "--delete", branch])
-                    .current_dir(&self.repo_path)
-                    .output();
-                cleaned += 1;
-            }
-        }
-        cleaned
-    }
 }

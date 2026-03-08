@@ -1,4 +1,5 @@
 use git2::{BranchType, Repository, StatusOptions};
+use serde::Serialize;
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 use std::process::Command;
@@ -7,7 +8,7 @@ use crate::theme::GitconLevel;
 
 // ── Project summary (lightweight, for list screen) ────────────────────────
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 #[allow(dead_code)]
 pub struct ProjectSummary {
     pub name: String,
@@ -117,7 +118,7 @@ fn format_commit_age(timestamp: i64) -> String {
 
 // ── Data structures ────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct DayActivity {
     pub commits: u8,
     pub merges: u8,
@@ -131,7 +132,7 @@ impl DayActivity {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct BranchInfo {
     pub name: String,
     pub is_local: bool,
@@ -139,7 +140,7 @@ pub struct BranchInfo {
     pub is_current: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct FileStatus {
     pub modified: usize,
     pub staged: usize,
@@ -147,7 +148,7 @@ pub struct FileStatus {
     pub conflicted: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct FileEntry {
     pub path: String,
     pub status_char: char, // M, A, D, ?, C, R
@@ -155,7 +156,7 @@ pub struct FileEntry {
     pub deletions: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct RepoInfo {
     pub name: String,
     pub current_branch: String,
@@ -465,7 +466,7 @@ fn calc_gitcon(files: &FileStatus, ahead: usize, behind: usize) -> GitconLevel {
 
 // ── Server info (remote disk + repo sizes) ────────────────────────────────
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ServerInfo {
     pub host: String,
     pub disk_total: String,

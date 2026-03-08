@@ -1,4 +1,5 @@
 use ratatui::style::{Color, Modifier, Style};
+use serde::Serialize;
 
 // ── Dark-ops palette (pizzint.watch inspired) ──────────────────────────────
 
@@ -34,7 +35,7 @@ pub const BLUE: Color = Color::Rgb(59, 130, 246);
 
 // ── GITCON levels ──────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize)]
 pub enum GitconLevel {
     /// Everything synced, clean tree
     Gitcon1,

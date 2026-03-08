@@ -18,6 +18,7 @@ Sodium remplace les commandes git manuelles par une interface visuelle dans le t
 - **Export historique** — generation d'un rapport Markdown
 - **Clone / Delete server repos** — cloner ou supprimer des bare repos depuis le serveur SSH
 - **Reinitialisation** — reset complet d'un repo avec generation automatique du `.gitignore`
+- **API headless** — socket Unix pour piloter les operations Git par script/automatisation
 
 ## Installation
 
@@ -48,6 +49,30 @@ activity_show = true
 github = "git@github.com:d6soft/sodium.git"
 ```
 
+## API headless
+
+Sodium peut tourner en mode serveur sans TUI, exposant un socket Unix pour l'automatisation :
+
+```bash
+# Lancer le serveur API
+sodium --api /chemin/vers/repo
+
+# Socket custom
+sodium --api /chemin/vers/repo --socket /tmp/custom.sock
+
+# Requetes (une ligne JSON in, une ligne JSON out)
+echo '{"action":"status"}' | socat - UNIX-CONNECT:/tmp/sodium-api.sock | jq
+echo '{"action":"branches"}' | socat - UNIX-CONNECT:/tmp/sodium-api.sock | jq
+echo '{"action":"gitcon"}' | socat - UNIX-CONNECT:/tmp/sodium-api.sock | jq
+echo '{"action":"projects"}' | socat - UNIX-CONNECT:/tmp/sodium-api.sock | jq
+echo '{"action":"files"}' | socat - UNIX-CONNECT:/tmp/sodium-api.sock | jq
+echo '{"action":"fetch"}' | socat - UNIX-CONNECT:/tmp/sodium-api.sock | jq
+echo '{"action":"pull"}' | socat - UNIX-CONNECT:/tmp/sodium-api.sock | jq
+echo '{"action":"commit","message":"fix typo"}' | socat - UNIX-CONNECT:/tmp/sodium-api.sock | jq
+```
+
+Actions disponibles : `status`, `branches`, `files`, `gitcon`, `projects`, `fetch`, `pull`, `push`, `backup`, `commit`, `new_branch`, `switch_branch`. Chaque action accepte un `path` optionnel pour cibler un repo different du defaut.
+
 ## Documentation
 
 Voir [SODIUM-USER-GUIDE.md](SODIUM-USER-GUIDE.md) pour le guide complet.
@@ -57,6 +82,7 @@ Voir [SODIUM-USER-GUIDE.md](SODIUM-USER-GUIDE.md) pour le guide complet.
 - **Rust** avec [ratatui](https://github.com/ratatui/ratatui) pour le TUI
 - **git2** (libgit2) pour les operations Git natives
 - **crossterm** pour le rendu terminal cross-platform
+- **serde_json** pour l'API socket Unix
 
 ## Licence
 

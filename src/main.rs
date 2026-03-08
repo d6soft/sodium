@@ -1,6 +1,8 @@
+mod api;
 mod app;
 mod config;
 mod git;
+mod git_ops;
 mod theme;
 mod ui;
 
@@ -21,6 +23,23 @@ const TICK_RATE: Duration = Duration::from_millis(100);
 
 fn main() -> Result<()> {
     color_eyre::install()?;
+
+    // Parse --api mode
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--api") {
+        let api_idx = args.iter().position(|a| a == "--api").unwrap();
+        let default_path = args.get(api_idx + 1)
+            .filter(|a| !a.starts_with("--"))
+            .map(std::path::PathBuf::from);
+
+        let socket_path = args.iter().position(|a| a == "--socket")
+            .and_then(|i| args.get(i + 1))
+            .map(|s| s.as_str())
+            .unwrap_or("/tmp/sodium-api.sock");
+
+        api::run_api_server(socket_path, default_path);
+        return Ok(());
+    }
 
     // Terminal setup
     enable_raw_mode()?;
