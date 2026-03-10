@@ -144,6 +144,8 @@ pub struct App {
     pub server_info: Option<ServerInfo>,
     // Focus: true = SERVER card, false = PROJECTS card
     pub server_focused: bool,
+    // True when the current project has no .git
+    pub is_no_repo: bool,
 }
 
 const SUBTITLES: &[&str] = &[
@@ -188,6 +190,7 @@ impl App {
             messages: Vec::new(),
             server_info: None,
             server_focused: false,
+            is_no_repo: false,
         };
         app.discover_projects();
         app
@@ -225,6 +228,7 @@ impl App {
             messages: Vec::new(),
             server_info: None,
             server_focused: false,
+            is_no_repo: false,
         };
         app.rebuild_menu();
         app
@@ -274,6 +278,23 @@ impl App {
     }
 
     fn rebuild_menu(&mut self) {
+        // NO REPO: minimal menu
+        if self.is_no_repo {
+            let items = vec![
+                MenuItem::SectionHeader("SETUP".into()),
+                MenuItem::Action(ActionKind::Reinit, "Initialize repo".into()),
+                MenuItem::Separator,
+                MenuItem::Action(ActionKind::Quit, "Quit".into()),
+            ];
+            self.menu_items = items;
+            if self.menu_index >= self.menu_items.len() {
+                self.menu_index = 0;
+            }
+            self.skip_separators_down();
+            self.flow_hint = Some((ActionKind::Reinit, "Initialize your repo".into()));
+            return;
+        }
+
         let on_main = self.repo_info.current_branch == "main";
         let branch = self.repo_info.current_branch.clone();
 
@@ -537,8 +558,13 @@ impl App {
                 self.do_history();
             }
             ActionKind::Reinit => {
+                let prompt = if self.is_no_repo {
+                    "Type CONFIRM to initialize"
+                } else {
+                    "Type CONFIRM to reinitialize (destructive)"
+                };
                 self.input_mode = InputMode::Confirm {
-                    prompt: "Type CONFIRM to reinitialize (destructive)".into(),
+                    prompt: prompt.into(),
                     purpose: ConfirmPurpose::Reinit,
                 };
                 self.input_buffer.clear();
@@ -559,16 +585,27 @@ impl App {
                 InputPurpose::BranchName => self.do_new_branch(&buf),
                 InputPurpose::CommitMessage => self.do_commit(&buf),
                 InputPurpose::RepoName => {
-                    self.running_action = Some((ActionKind::Reinit, "Reinitialize en cours...".into()));
+                    let msg = if self.is_no_repo {
+                        "Initialize en cours..."
+                    } else {
+                        "Reinitialize en cours..."
+                    };
+                    self.running_action = Some((ActionKind::Reinit, msg.into()));
                     self.pending_op = Some(PendingOp::Reinit(buf));
                 }
                 InputPurpose::CloneTarget(name) => self.do_clone_bare_repo(&name, &buf),
             },
             InputMode::Confirm { purpose, .. } => match purpose {
                 ConfirmPurpose::Reinit => {
-                    if buf == "CONFIRM" {
+                    if buf.eq_ignore_ascii_case("CONFIRM") {
                         // Chain to repo name input
-                        let default_name = self.repo_info.name.clone();
+                        let default_name = if self.is_no_repo {
+                            self.repo_path.file_name()
+                                .map(|n| n.to_string_lossy().into_owned())
+                                .unwrap_or_else(|| self.repo_info.name.clone())
+                        } else {
+                            self.repo_info.name.clone()
+                        };
                         self.input_mode = InputMode::TextInput {
                             prompt: format!("Repo name ({})", default_name),
                             purpose: InputPurpose::RepoName,
@@ -779,15 +816,18 @@ impl App {
     pub fn enter_project(&mut self) {
         if let Some(proj) = self.projects.get(self.project_index) {
             let is_no_repo = !proj.has_git;
+            self.is_no_repo = is_no_repo;
             self.repo_path = proj.path.clone();
             self.repo_info = git::gather_repo_info(&self.repo_path).unwrap_or_default();
             self.done_actions.clear();
             self.messages.clear();
-            let on_main = self.repo_info.current_branch == "main";
-            if !on_main {
-                self.done_actions.insert(ActionKind::NewBranch);
-                if self.repo_info.ahead_of_main > 0 {
-                    self.done_actions.insert(ActionKind::Commit);
+            if !is_no_repo {
+                let on_main = self.repo_info.current_branch == "main";
+                if !on_main {
+                    self.done_actions.insert(ActionKind::NewBranch);
+                    if self.repo_info.ahead_of_main > 0 {
+                        self.done_actions.insert(ActionKind::Commit);
+                    }
                 }
             }
             self.rebuild_menu();
@@ -810,6 +850,7 @@ impl App {
         if self.config.is_none() {
             return;
         }
+        self.is_no_repo = false;
         self.done_actions.clear();
         self.messages.clear();
         self.discover_projects();
@@ -1341,8 +1382,10 @@ impl App {
 
         match push {
             Ok(o) if o.status.success() => {
+                let verb = if self.is_no_repo { "initialized" } else { "reinitialized" };
+                self.is_no_repo = false;
                 self.notify(
-                    format!("[SIGINT] Repo reinitialized → {}", remote_url),
+                    format!("[SIGINT] Repo {} → {}", verb, remote_url),
                     false,
                 );
                 self.menu_index = 0;
