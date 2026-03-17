@@ -577,7 +577,7 @@ fn render_project_list_footer(f: &mut Frame, _app: &App, area: Rect) {
 
     let branding = format!(
         "{:>width$}",
-        concat!("⚛ sodium v", env!("CARGO_PKG_VERSION")),
+        format!("⚛ sodium v{}", include_str!("../VERSION").trim()),
         width = area.width.saturating_sub(55) as usize
     );
 
@@ -703,14 +703,18 @@ fn render_body(f: &mut Frame, app: &App, area: Rect) {
         .map(|c| c.activity_show)
         .unwrap_or(true);
 
+    // Calculate FILES card height: base 5 + up to 10 modified file names
+    let mod_count = app.repo_info.files.modified_names.len().min(10);
+    let files_height = if mod_count > 0 { 5 + mod_count as u16 } else { 5 };
+
     if show_activity {
         let right_rows = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(8),  // Branches (compact)
-                Constraint::Length(5),  // Files (compact)
-                Constraint::Length(14), // Activity (heatmap)
-                Constraint::Min(4),    // Messages
+                Constraint::Length(8),            // Branches (compact)
+                Constraint::Length(files_height),  // Files
+                Constraint::Length(14),            // Activity (heatmap)
+                Constraint::Min(4),               // Messages
             ])
             .split(cols[1]);
 
@@ -722,9 +726,9 @@ fn render_body(f: &mut Frame, app: &App, area: Rect) {
         let right_rows = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(8), // Branches
-                Constraint::Length(5), // Files (compact)
-                Constraint::Min(4),   // Messages
+                Constraint::Length(8),            // Branches
+                Constraint::Length(files_height),  // Files
+                Constraint::Min(4),               // Messages
             ])
             .split(cols[1]);
 
@@ -1124,6 +1128,16 @@ fn render_status(f: &mut Frame, app: &App, area: Rect) {
         ]));
     }
 
+    // Show up to 10 modified file names with modification date
+    for (name, mtime) in files.modified_names.iter().take(10) {
+        let short = name.rsplit('/').next().unwrap_or(name);
+        lines.push(Line::from(vec![
+            Span::styled("    ", Style::default()),
+            Span::styled(short, Style::default().fg(theme::FG_DIM)),
+            Span::styled(format!("  {}", mtime), Style::default().fg(theme::CYAN)),
+        ]));
+    }
+
     f.render_widget(Paragraph::new(lines), inner);
 }
 
@@ -1355,7 +1369,7 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
     } else if app.is_multi_project() {
         let branding = format!(
             "{:>width$}",
-            concat!("⚛ sodium v", env!("CARGO_PKG_VERSION")),
+            format!("⚛ sodium v{}", include_str!("../VERSION").trim()),
             width = area.width.saturating_sub(65) as usize
         );
         Line::from(vec![
@@ -1372,7 +1386,7 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
     } else {
         let branding = format!(
             "{:>width$}",
-            concat!("⚛ sodium v", env!("CARGO_PKG_VERSION")),
+            format!("⚛ sodium v{}", include_str!("../VERSION").trim()),
             width = area.width.saturating_sub(45) as usize
         );
         Line::from(vec![

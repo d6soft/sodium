@@ -25,20 +25,33 @@ fi
 
 # ── Version bump (YY.MM.DDII) ─────────────────────────────────────────
 CARGO_TOML="${PROJECT_DIR}/Cargo.toml"
+VERSION_FILE="${PROJECT_DIR}/VERSION"
 TODAY_PREFIX="$(date +%y).$(date +%-m).$(date +%-d)"
-CURRENT_VERSION=$(grep -oP '^version = "\K[^"]+' "$CARGO_TOML")
+DISPLAY_PREFIX="$(date +%y).$(date +%m).$(date +%d)"
 
-if [[ "$CURRENT_VERSION" == ${TODAY_PREFIX}* ]]; then
-    # Same day: increment the 2-digit suffix
-    CURRENT_SEQ="${CURRENT_VERSION##${TODAY_PREFIX}}"
-    NEXT_SEQ=$(printf "%02d" $(( 10#${CURRENT_SEQ} + 1 )))
+# Read current version from VERSION file (or Cargo.toml as fallback)
+if [[ -f "$VERSION_FILE" ]]; then
+    CURRENT_DISPLAY=$(cat "$VERSION_FILE")
+    # Extract sequence from display version (last 2 chars)
+    CURRENT_DATE_PART="${CURRENT_DISPLAY%??}"
+    if [[ "$CURRENT_DATE_PART" == "${DISPLAY_PREFIX}" ]]; then
+        CURRENT_SEQ="${CURRENT_DISPLAY: -2}"
+        NEXT_SEQ=$(printf "%02d" $(( 10#${CURRENT_SEQ} + 1 )))
+    else
+        NEXT_SEQ="01"
+    fi
 else
     NEXT_SEQ="01"
 fi
 
+# Cargo.toml version (no leading zeros for semver compat)
 NEW_VERSION="${TODAY_PREFIX}${NEXT_SEQ}"
 sed -i "s/^version = \".*\"/version = \"${NEW_VERSION}\"/" "$CARGO_TOML"
-echo -e "  ${DIM}Version: ${NEW_VERSION}${RESET}"
+
+# VERSION file (zero-padded display format: YY.MM.DDxx)
+NEW_DISPLAY="${DISPLAY_PREFIX}${NEXT_SEQ}"
+echo -n "$NEW_DISPLAY" > "$VERSION_FILE"
+echo -e "  ${DIM}Version: ${NEW_DISPLAY}${RESET}"
 
 # ── Clean ───────────────────────────────────────────────────────────────
 echo -e "  ${DIM}Cleaning target/...${RESET}"

@@ -146,6 +146,7 @@ pub struct FileStatus {
     pub staged: usize,
     pub untracked: usize,
     pub conflicted: usize,
+    pub modified_names: Vec<(String, String)>, // (path, modification date)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -189,6 +190,7 @@ impl Default for RepoInfo {
                 staged: 0,
                 untracked: 0,
                 conflicted: 0,
+                modified_names: Vec::new(),
             },
             remote_url: None,
             github_url: None,
@@ -361,14 +363,18 @@ fn calc_file_status(repo: &Repository) -> FileStatus {
                 staged: 0,
                 untracked: 0,
                 conflicted: 0,
+                modified_names: Vec::new(),
             }
         }
     };
+
+    let workdir = repo.workdir().map(|w| w.to_path_buf());
 
     let mut modified = 0;
     let mut staged = 0;
     let mut untracked = 0;
     let mut conflicted = 0;
+    let mut modified_names = Vec::new();
 
     for entry in statuses.iter() {
         let s = entry.status();
@@ -380,6 +386,18 @@ fn calc_file_status(repo: &Repository) -> FileStatus {
             if s.is_wt_modified() || s.is_wt_deleted() || s.is_wt_renamed() || s.is_wt_typechange()
             {
                 modified += 1;
+                if let Some(p) = entry.path() {
+                    let mtime = workdir.as_ref().and_then(|wd| {
+                        std::fs::metadata(wd.join(p))
+                            .ok()
+                            .and_then(|m| m.modified().ok())
+                            .map(|t| {
+                                let dt: chrono::DateTime<chrono::Local> = t.into();
+                                dt.format("%d/%m %H:%M").to_string()
+                            })
+                    }).unwrap_or_default();
+                    modified_names.push((p.to_string(), mtime));
+                }
             }
             if s.is_index_new()
                 || s.is_index_modified()
@@ -397,6 +415,7 @@ fn calc_file_status(repo: &Repository) -> FileStatus {
         staged,
         untracked,
         conflicted,
+        modified_names,
     }
 }
 
