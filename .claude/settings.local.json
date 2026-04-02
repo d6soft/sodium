@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:pizzint.watch)",
+      "mcp__chrome-devtools__take_screenshot",
+      "mcp__chrome-devtools__new_page",
+      "mcp__chrome-devtools__list_pages",
+      "mcp__ide__getDiagnostics"
+    ]
+  }
+}

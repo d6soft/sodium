@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::process::Command;
 
@@ -124,6 +125,9 @@ pub fn git_commit(path: &Path, message: &str, files: &[String]) -> Result<String
         return Err("Empty commit message".into());
     }
 
+    // TT705: Auto-clean tracked files matching .gitignore before staging
+    let cleaned = git_clean_tracked_ignored(path);
+
     // Stage files
     if files.is_empty() {
         Command::new("git")
@@ -150,11 +154,109 @@ pub fn git_commit(path: &Path, message: &str, files: &[String]) -> Result<String
         .map_err(|e| format!("{}", e))?;
 
     if output.status.success() {
-        Ok(format!("Commit recorded: {}", message))
+        let suffix = if cleaned > 0 {
+            format!(" ({} cached files cleaned)", cleaned)
+        } else {
+            String::new()
+        };
+        Ok(format!("Commit recorded: {}{}", message, suffix))
     } else {
         let err = String::from_utf8_lossy(&output.stderr).trim().to_string();
         Err(err)
     }
+}
+
+/// Detect known build/artifact directories tracked in git index.
+/// Checks root level and nested subprojects (Cargo.toml, package.json, etc.).
+/// Returns list of directory prefixes found (e.g., ["target/", "dubnium/target/"]).
+pub fn detect_suspect_tracked(path: &Path) -> Vec<String> {
+    const SUSPECT: &[&str] = &[
+        "target", "node_modules", ".next", "dist",
+        ".svelte-kit", "__pycache__", ".dart_tool",
+    ];
+
+    let mut found = BTreeSet::new();
+
+    // Check root-level suspects
+    for dir in SUSPECT {
+        if path.join(dir).is_dir() && is_dir_in_index(path, dir) {
+            found.insert(format!("{}/", dir));
+        }
+    }
+
+    // Check nested subprojects (one level deep)
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries.flatten() {
+            let ep = entry.path();
+            if !ep.is_dir() { continue; }
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with('.') { continue; }
+
+            let mut sub_suspects: Vec<&str> = Vec::new();
+            if ep.join("Cargo.toml").exists() { sub_suspects.push("target"); }
+            if ep.join("package.json").exists() {
+                sub_suspects.extend_from_slice(&["node_modules", ".next", ".svelte-kit", "dist"]);
+            }
+            if ep.join("go.mod").exists() { sub_suspects.push("vendor"); }
+            if ep.join("pubspec.yaml").exists() { sub_suspects.extend_from_slice(&[".dart_tool", "build"]); }
+
+            for dir in sub_suspects {
+                let nested = format!("{}/{}", name, dir);
+                if ep.join(dir).is_dir() && is_dir_in_index(path, &nested) {
+                    found.insert(format!("{}/", nested));
+                }
+            }
+        }
+    }
+
+    found.into_iter().collect()
+}
+
+fn is_dir_in_index(repo_path: &Path, dir: &str) -> bool {
+    let pattern = format!("{}/", dir);
+    Command::new("git")
+        .args(["ls-files", "--cached", &pattern])
+        .current_dir(repo_path)
+        .output()
+        .ok()
+        .map(|o| o.status.success() && !o.stdout.is_empty())
+        .unwrap_or(false)
+}
+
+/// List tracked files that match current .gitignore patterns.
+pub fn git_tracked_ignored(path: &Path) -> Vec<String> {
+    Command::new("git")
+        .args(["ls-files", "--cached", "-i", "--exclude-standard"])
+        .current_dir(path)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .map(String::from)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Remove tracked files that match .gitignore from the index (git rm --cached).
+/// Returns count of files cleaned.
+pub fn git_clean_tracked_ignored(path: &Path) -> usize {
+    let files = git_tracked_ignored(path);
+    if files.is_empty() {
+        return 0;
+    }
+    let count = files.len();
+    let mut args: Vec<&str> = vec!["rm", "--cached", "--quiet", "--"];
+    for f in &files {
+        args.push(f.as_str());
+    }
+    let _ = Command::new("git")
+        .args(&args)
+        .current_dir(path)
+        .output();
+    count
 }
 
 fn cleanup_merged_branches(path: &Path) -> usize {

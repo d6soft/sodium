@@ -830,6 +830,17 @@ impl App {
                     }
                 }
             }
+            // TT703: Detect suspect tracked directories
+            if !is_no_repo {
+                let suspects = git_ops::detect_suspect_tracked(&self.repo_path);
+                if !suspects.is_empty() {
+                    let dirs = suspects.join(", ");
+                    self.notify(
+                        format!("[GITCON] Tracked build dirs detected: {} — clean with commit", dirs),
+                        true,
+                    );
+                }
+            }
             self.rebuild_menu();
             self.menu_index = if is_no_repo {
                 self.menu_items.iter().position(|item| matches!(item, MenuItem::Action(ActionKind::Reinit, _))).unwrap_or(0)
@@ -1440,6 +1451,41 @@ impl App {
             gi.push_str("\n# ── Flutter / Dart ──\n");
             gi.push_str(".dart_tool/\n.flutter-plugins\n.flutter-plugins-dependencies\n");
             gi.push_str(".packages\nbuild/\n*.iml\n");
+        }
+
+        // Scan subdirectories for nested subprojects
+        let mut nested_patterns: Vec<String> = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(p) {
+            for entry in entries.flatten() {
+                let ep = entry.path();
+                if !ep.is_dir() { continue; }
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.starts_with('.') { continue; }
+
+                if ep.join("Cargo.toml").exists() {
+                    nested_patterns.push(format!("{}/target/", name));
+                }
+                if ep.join("package.json").exists() {
+                    nested_patterns.push(format!("{}/node_modules/", name));
+                    nested_patterns.push(format!("{}/.svelte-kit/", name));
+                    nested_patterns.push(format!("{}/dist/", name));
+                    nested_patterns.push(format!("{}/build/", name));
+                }
+                if ep.join("go.mod").exists() {
+                    nested_patterns.push(format!("{}/vendor/", name));
+                }
+                if ep.join("pubspec.yaml").exists() {
+                    nested_patterns.push(format!("{}/.dart_tool/", name));
+                    nested_patterns.push(format!("{}/build/", name));
+                }
+            }
+        }
+        if !nested_patterns.is_empty() {
+            gi.push_str("\n# ── Nested subprojects ──\n");
+            for pat in nested_patterns {
+                gi.push_str(&pat);
+                gi.push('\n');
+            }
         }
 
         gi

@@ -1,207 +1,137 @@
-# Sodium — Roadmap
+<!-- TANTALE:CONTEXT -->
+Sodium est un outil TUI (Terminal User Interface) de gestion Git multi-projets et multi-utilisateurs, écrit en Rust avec ratatui. Il remplace le script bash git.sh existant par un binaire unique cross-platform (Linux, macOS, Windows). Le projet est structuré en 6 phases : Phase 1 (port bash → Rust TUI) est terminée, Phase 2 (multi-projets) est quasi terminée, Phase 3 (améliorations workflow) a le commit amélioré fait mais le reste est en attente, Phases 4 à 6 (multi-utilisateurs, fonctionnalités avancées, distribution) sont entièrement à faire. Stack : Rust edition 2021+, ratatui 0.29, crossterm 0.28, git2 0.19, config TOML. Le projet dispose d'un thème visuel dark-ops avec effets glitch et palette neon.
+<!-- /TANTALE:CONTEXT -->
 
-## Vision
+<!-- ATTENTION CLAUDE CODE :
+Ne JAMAIS supprimer ni modifier les identifiants #TTxxx.
+Pour les dates de debut et fin, utiliser la date et heure actuelles (ex: 2026-03-31 14:30), jamais T00:00:00.
+Si tu modifies une tache, tu DOIS mettre a jour sa date Maj avec la date/heure courante.
+A chaque fois que tu travailles sur une tache, mets a jour son temps passe (temps: en minutes) en estimant le temps reel de travail effectue.
+Renseigne le champ Resultat apres chaque intervention sur une tache. Sois tres concis et utilise /humanizer.
+Formats :
+  - [ ] #TT123 : titre de la tache
+    - debut: 2026-04-01 09:00 | fin: 2026-04-05 18:00 | Maj: 2026-04-01 14:30:00
+    - Statut : En cours | temps: 150 | Assigné : Pierre V.
+    - Description libre de la tache
+    - Résultat : texte libre du resultat
+  - [x] #TT124 : tache terminee
+  - [ ] Nouvelle tache sans #TT (Shannon l'attribuera)
+-->
 
-Outil TUI (Terminal User Interface) de gestion Git multi-projets, multi-utilisateurs.
-Un seul binaire cross-platform (Linux, macOS, Windows) remplaçant le script `git.sh` bash.
+<!-- TANTALE:TASKS -->
+- [x] #TT658 : Commit : affichage fichiers + choix sélectif (régression git.sh)
+  - Statut : Terminé
+- [x] #TT664 : Commit amélioré (liste fichiers, choix sélectif, diff résumé)
+  - Statut : Terminé
+- [x] #TT654 : Scaffold projet (cargo init, structure, boucle événementielle, thème)
+  - Statut : Terminé
+- [x] #TT655 : Header / Dashboard (logo, GITCON, infos repo, branches, sparkline)
+  - Statut : Terminé
+- [x] #TT656 : Menu actions (navigation, overlays, actions git)
+  - Statut : Terminé
+- [x] #TT657 : Actions git (reinit, commit, push, fetch, merge, switch, backup, history, gitignore)
+  - Statut : Terminé
+- [ ] #TT659 : Pull (action manquante dans le workflow)
+  - Statut : Backlog
+- [x] #TT660 : Configuration multi-projets (sodium.toml, dev_root, remote)
+  - Statut : Terminé
+- [x] #TT661 : Vue projets (liste, statut, navigation, scroll)
+  - Statut : Terminé
+- [ ] #TT665 : Action git pull origin (rebase vs merge configurable)
+  - Statut : Backlog
+- [ ] #TT691 : Diff intégré dans la TUI (avant commit, avant merge)
+  - Statut : Backlog
+- [ ] #TT666 : Stash rapide (save, pop, liste, auto avant switch)
+  - Statut : Backlog
+- [ ] #TT667 : Raccourci [f] fetch depuis liste projets
+  - Statut : Backlog
+- [ ] #TT668 : Raccourci [p] push depuis liste projets
+  - Statut : Backlog
+- [ ] #TT669 : Raccourci [P] pull depuis liste projets
+  - Statut : Backlog
+- [ ] #TT671 : Batch operations (sélection multi-projets, fetch/pull all)
+  - Statut : Backlog
+- [ ] #TT675 : Recherche / filtre projets par nom en temps réel
+  - Statut : Backlog
+- [ ] #TT679 : Détection conflits potentiels avant merge (overlap fichiers)
+  - Statut : Backlog
+- [ ] #TT681 : Synchronisation assistée (fetch → pull → merge → résolution → push)
+  - Statut : Backlog
+- [ ] #TT682 : Diff avant merge (résumé fichiers impactés)
+  - Statut : Backlog
+- [ ] #TT688 : Vue log scrollable (git log --graph en TUI)
+  - Statut : Backlog
+- [ ] #TT662 : Ajout / suppression de projets depuis la TUI
+  - Statut : Backlog
+- [ ] #TT663 : Remote configurable par projet
+  - Statut : Backlog
+- [ ] #TT670 : Feedback inline sur ligne projet (spinner/ok/error)
+  - Statut : Backlog
+- [ ] #TT672 : Barre de progression globale batch
+  - Statut : Backlog
+- [ ] #TT673 : Résumé batch (fetched, errors)
+  - Statut : Backlog
+- [ ] #TT676 : Afficher branches remote avec auteur (dernier commit)
+  - Statut : Backlog
+- [ ] #TT677 : Indicateur visuel collaborateur actif sur branche
+  - Statut : Backlog
+- [ ] #TT680 : Indicateur conflit potentiel dans liste projets
+  - Statut : Backlog
+- [ ] #TT683 : Aide résolution conflits (liste fichiers, ouverture éditeur)
+  - Statut : Backlog
+- [ ] #TT684 : Contrôle d'accès SSH par repo (private/team, chmod/chgrp)
+  - Statut : Backlog
+- [ ] #TT685 : Déclaration utilisateurs dans sodium.toml
+  - Statut : Backlog
+- [ ] #TT689 : Détail d'un commit (diff, fichiers) sur Enter
+  - Statut : Backlog
+- [ ] #TT692 : Colorisation syntaxique diff (syntect)
+  - Statut : Backlog
+- [ ] #TT693 : Navigation fichier par fichier dans diff
+  - Statut : Backlog
+- [ ] #TT694 : Gestion tags (créer, lister, pousser)
+  - Statut : Backlog
+- [ ] #TT696 : Watch mode (auto-refresh liste projets, détection push collègue)
+  - Statut : Backlog
+- [ ] #TT699 : CI GitHub Actions (Linux musl, macOS x86+arm, Windows msvc)
+  - Statut : Backlog
+- [ ] #TT700 : Binaire unique sans dépendance
+  - Statut : Backlog
+- [ ] #TT674 : Card Activity optionnelle (show_activity config)
+  - Statut : Backlog
+- [ ] #TT678 : Colonne auteur dans card BRANCHES
+  - Statut : Backlog
+- [ ] #TT686 : Menu action Access control dans vue projet
+  - Statut : Backlog
+- [ ] #TT687 : Affichage statut accès dans liste projets
+  - Statut : Backlog
+- [ ] #TT695 : Convention de versioning configurable
+  - Statut : Backlog
+- [ ] #TT697 : Notification visuelle changement remote
+  - Statut : Backlog
+- [ ] #TT698 : Notifications système (alerte push collègue, bell terminal)
+  - Statut : Backlog
+- [ ] #TT701 : Script d'install (curl | sh)
+  - Statut : Backlog
+- [ ] #TT702 : Packages distribution (.deb, .rpm, Homebrew, winget/scoop)
+  - Statut : Backlog
+- [x] #TT703 : Détection proactive des dossiers suspects trackés
+  - début: 2026-04-02 12:38 | fin: 2026-04-02 12:45
+  - Statut : Terminé | temps: 4
+  - Alerte GITCON à l'entrée d'un projet quand des dossiers build (target/, node_modules/, .next/, etc.) sont trackés. Détection root + sous-projets imbriqués.
+  - Résultat : Ajout de detect_suspect_tracked() dans git_ops.rs + notification dans enter_project(). Scanne les dossiers suspects racine et les sous-projets (Cargo.toml, package.json, go.mod, pubspec.yaml).
+- [x] #TT704 : Génération .gitignore : détection des sous-projets imbriqués
+  - début: 2026-04-02 12:38 | fin: 2026-04-02 12:45
+  - Statut : Terminé | temps: 1
+  - generate_gitignore() scanne les sous-dossiers pour Cargo.toml, package.json, go.mod, pubspec.yaml et ajoute les patterns build correspondants.
+  - Résultat : Section "Nested subprojects" ajoutée au .gitignore généré (subdir/target/, subdir/node_modules/, etc.).
+- [x] #TT705 : Nettoyage auto du cache git au commit
+  - début: 2026-04-02 12:38 | fin: 2026-04-02 12:47
+  - Statut : Terminé | temps: 1
+  - Avant staging, git_commit() appelle git_clean_tracked_ignored() qui exécute git rm --cached sur les fichiers trackés matchant le .gitignore. Silencieux, fichiers conservés sur disque.
+  - Résultat : Nettoyage auto intégré dans git_commit(). Le nombre de fichiers nettoyés est affiché dans la notification de commit.
+<!-- /TANTALE:TASKS -->
 
-**Stack** : Rust + ratatui
-
-## Origine
-
-Le fichier `git.sh` (copié dans ce dépôt) est le prototype bash actuel.
-Il gère un seul dépôt avec : init, commit, push, merge, branches, fetch, historique.
-
----
-
-## Phase 1 — Port du script bash vers Rust/ratatui ✅
-
-Reproduire les fonctionnalités existantes de `git.sh` dans une TUI ratatui.
-
-### 1.1 Scaffold projet ✅
-- [x] `cargo init` avec dépendances : `ratatui`, `crossterm`, `git2` (libgit2), `color-eyre`, `chrono`, `rand`
-- [x] Structure de base : `main.rs`, `app.rs`, `ui.rs`, `git.rs`, `theme.rs`, `config.rs`
-- [x] Boucle événementielle crossterm (clavier, tick 100ms)
-- [x] Thème dark-ops (palette neon sur fond deep space)
-- [x] Effet glitch au démarrage + transitions
-
-### 1.2 Header / Dashboard ✅
-- [x] Logo ASCII SODIUM animé + sous-titre rotatif
-- [x] Barre GITCON (niveau 1-5 avec couleur + clignotement)
-- [x] Nom du dépôt, branche courante, dernier commit, URL remote (sur 2 lignes)
-- [x] Tableau branches Local / Remote
-- [x] Indicateurs ahead/behind par rapport à upstream
-- [x] Compteurs fichiers : modifiés, stagés, non suivis, conflits
-- [x] Sparkline activité 14 jours + stats commits
-
-### 1.3 Menu actions ✅
-- [x] Navigation flèches + vim (j/k) + entrée
-- [x] Actions : nouvelle branche, commit, switch, fetch, merge, push, backup, history, reinit
-- [x] Séparateurs visuels dans le menu
-- [x] Overlay text input (branch name, commit message, repo name)
-- [x] Overlay confirmation pour actions destructives (reinit)
-- [x] Overlay sélection pour switch branch et merge
-
-### 1.4 Actions git ✅
-- [x] `reinit` : CONFIRM → nom repo → SSH bare repo (rm + init) → rm .git → init → remote → gitignore → commit → push
-- [x] `commit` : git add -A + git commit -m (text input)
-- [x] `push` main → origin + cleanup auto branches mergées (local + remote)
-- [x] `fetch --prune` origin
-- [x] `merge` branche → main (popup sélection si on main, direct sinon)
-- [x] `checkout` / `switch` branche (popup sélection)
-- [x] `backup` branche feature → origin
-- [x] `history` : export markdown `docs/git-<name>-<date>.md`
-- [x] Génération `.gitignore` auto (détection Node/Svelte/Capacitor/Rust/Go/Flutter)
-- [x] Notifications avec expiration auto (~4s) + clignotement
-
-### 1.5 Manques par rapport à git.sh ⚠️
-- [x] **Commit : affichage fichiers + choix sélectif** — git.sh affichait la liste des fichiers modifiés et proposait "Oui (git add -A)" / "Non, choisir manuellement" / "Annuler". Corrigé en Phase 3.1.
-- [ ] **Pull** — git.sh ne l'avait pas non plus, mais c'est un trou dans le workflow standard
-
----
-
-## Phase 2 — Multi-projets ✅
-
-### 2.1 Configuration ✅
-- [x] Fichier config `~/.config/sodium/sodium.toml` (TOML, serde)
-- [x] Création automatique au premier lancement avec valeurs par défaut
-- [x] `dev_root` : chemin vers le dossier de développement (expansion `~`)
-- [x] `remote_host` / `remote_path` : serveur SSH pour les bare repos
-- [x] Fallback mono-projet si config absente ou dev_root invalide
-
-### 2.2 Vue projets ✅
-- [x] Écran d'accueil listant tous les sous-dossiers de `dev_root`
-- [x] Statut rapide par projet : branche, ahead/behind, dirty count, dernier commit + âge
-- [x] Barre résumé : total projets, clean, dirty, no repo
-- [x] Navigation ↑↓/jk + Enter pour ouvrir → vue détaillée (Phase 1)
-- [x] Esc/Backspace/q pour revenir à la liste
-- [x] Scroll avec indicateur position
-- [x] Skip dossiers cachés (.hidden)
-- [x] Dossiers sans .git affichés en "NO REPO" (rouge)
-- [ ] Ajout / suppression de projets depuis la TUI
-- [ ] Remote configurable par projet
-
----
-
-## Phase 3 — Améliorations workflow quotidien
-
-Quick wins à fort impact pour l'usage multi-projet au quotidien.
-
-### 3.1 Commit amélioré (régression git.sh) ✅
-- [x] Afficher la liste des fichiers modifiés/stagés/untracked avant commit
-- [x] Choix : "Tout ajouter" / "Sélection manuelle" / "Annuler"
-- [x] Overlay sélection multi-fichiers (espace pour toggle, entrée pour valider)
-- [x] Résumé du diff (nombre de lignes +/-) par fichier
-
-### 3.2 Pull
-- [ ] Action `git pull origin <branch>` dans le menu
-- [ ] Gestion rebase vs merge (configurable)
-
-### 3.3 Stash rapide
-- [ ] `[s]` stash save depuis le detail view
-- [ ] `[S]` stash pop
-- [ ] Liste des stashs avec restore/drop
-- [ ] Stash automatique avant switch de branche si dirty
-
-### 3.4 Raccourcis depuis la liste projets
-- [ ] `[f]` fetch le projet sélectionné sans l'ouvrir
-- [ ] `[p]` push le projet sélectionné sans l'ouvrir
-- [ ] `[P]` pull le projet sélectionné sans l'ouvrir
-- [ ] Feedback inline sur la ligne du projet (icône spinner / ok / error)
-
-### 3.5 Batch operations
-- [ ] Espace pour sélectionner/désélectionner des projets dans la liste
-- [ ] `[F]` fetch all selected
-- [ ] `[A]` pull all selected
-- [ ] Barre de progression globale
-- [ ] Résumé à la fin : "12 fetched, 2 errors"
-
-### 3.6 Card Activity optionnelle
-- [ ] Option `show_activity = true/false` dans `sodium.toml`
-- [ ] Si désactivée, redistribuer l'espace aux cards BRANCHS et FILES
-
-### 3.7 Recherche / filtre dans la liste
-- [ ] `/` ouvre un champ de recherche, filtre les projets par nom en temps réel
-- [ ] Esc pour annuler le filtre
-- [ ] Highlight du match dans le nom
-
----
-
-## Phase 4 — Multi-utilisateurs
-
-### 4.1 Conscience des collaborateurs
-- [ ] Afficher les branches remote avec leur auteur (dernier commit)
-- [ ] Indicateur visuel : "Thierry travaille sur `feat-auth` (2h ago)"
-- [ ] Colonne auteur dans la card BRANCHES
-
-### 4.2 Détection de conflits potentiels
-- [ ] Avant merge : lister les fichiers modifiés des deux côtés
-- [ ] Avertir si overlap (mêmes fichiers touchés sur 2 branches)
-- [ ] Indicateur dans la liste projets si conflit potentiel détecté
-
-### 4.3 Synchronisation assistée
-- [ ] Workflow guidé : fetch → pull → merge → résolution conflits → push
-- [ ] Diff avant merge (résumé des fichiers impactés)
-- [ ] Aide à la résolution de conflits (liste des fichiers, ouverture éditeur)
-
-### 4.4 Contrôle d'accès SSH par repo
-- [ ] Déclarer les utilisateurs dans `sodium.toml` (`[[server.users]]`)
-- [ ] Par projet : accès `private` (owner seul, `700`) ou `team` (groupe partagé, `770 + g+s`)
-- [ ] Menu action "Access control" dans la vue projet avec sélecteur private/team
-- [ ] Exécution via SSH : `chgrp`/`chmod` sur le bare repo distant
-- [ ] Affichage du statut accès dans la liste projets (🔒/👥)
-
----
-
-## Phase 5 — Fonctionnalités avancées
-
-### 5.1 Vue log scrollable
-- [ ] Écran dédié historique (nouvel écran ou panneau)
-- [ ] `git log --oneline --graph` en TUI, scrollable
-- [ ] Détail d'un commit (diff, fichiers) sur Enter
-- [x] Export markdown (action "Export history")
-
-### 5.2 Diff intégré
-- [ ] Vue diff inline dans la TUI (avant commit, avant merge)
-- [ ] Colorisation syntaxique (crate `syntect`)
-- [ ] Navigation fichier par fichier
-
-### 5.3 Tags
-- [ ] Créer / lister / pousser des tags
-- [ ] Convention de versioning configurable
-
-### 5.4 Watch mode
-- [ ] Auto-refresh de la liste projets en background (configurable, ex: 30s)
-- [ ] Détection de changements remote (nouveau push d'un collègue)
-- [ ] Notification visuelle sur la ligne du projet concerné
-- [ ] Opt-in dans la config : `watch_interval = 30`
-
-### 5.5 Notifications système
-- [ ] Alerte quand un collègue push sur un projet ouvert
-- [ ] Via fetch périodique background + comparaison ahead/behind
-- [ ] Son terminal (bell) optionnel
-
----
-
-## Phase 6 — Cross-platform et distribution
-
-### 6.1 Build
-- [ ] CI GitHub Actions : Linux (musl), macOS (x86 + arm), Windows (msvc)
-- [ ] Binaire unique sans dépendance
-
-### 6.2 Installation
-- [ ] Script d'install (`curl | sh`)
-- [ ] Packages : `.deb`, `.rpm`, Homebrew, `winget`/`scoop`
-
----
-
-## Contraintes techniques
-
-| Aspect | Choix |
-|--------|-------|
-| Langage | Rust (edition 2021+) |
-| TUI | ratatui 0.29 + crossterm 0.28 |
-| Git | git2 0.19 (libgit2 bindings) + shell-out pour mutations |
-| SSH | shell-out (`ssh` pour bare repos) |
-| Config | TOML (`~/.config/sodium/sodium.toml`) via toml 0.8 |
-| Cible | Linux x86_64, macOS arm64/x86_64, Windows x86_64 |
+<!-- TANTALE:NOTES -->
+Aucune correspondance trouvée avec les tâches Tantale existantes (#TT). Le projet Sodium est un outil Git TUI indépendant qui ne correspond à aucun des projets suivis dans Tantale (CRM Resalice, Catalibris, Geo, Pulse, Echo, etc.). Si Sodium doit être suivi dans Tantale, il faudra créer un nouveau projet dédié et importer ces tâches. Points d'attention : (1) La Phase 1 pull manquant est aussi listée en Phase 3.2 — c'est la même tâche, à ne pas dupliquer. (2) Le commit sélectif (Phase 1.5) est marqué comme corrigé en Phase 3.1 — cohérent. (3) Les Phases 4-6 sont ambitieuses (multi-utilisateurs, cross-platform) et pourraient nécessiter un re-priorisation selon l'usage réel.
+<!-- /TANTALE:NOTES -->
