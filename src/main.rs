@@ -139,6 +139,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
                             KeyCode::Down | KeyCode::Char('j') => app.menu_down(),
                             KeyCode::Enter => app.execute_action(),
                             KeyCode::Char('r') => app.refresh(),
+                            KeyCode::Char('g') => app.open_gitcon_fix(),
                             _ => {}
                         },
                     },

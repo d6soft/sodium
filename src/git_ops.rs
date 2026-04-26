@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::path::Path;
 use std::process::Command;
 
@@ -166,25 +166,27 @@ pub fn git_commit(path: &Path, message: &str, files: &[String]) -> Result<String
     }
 }
 
-/// Detect known build/artifact directories tracked in git index.
-/// Checks root level and nested subprojects (Cargo.toml, package.json, etc.).
-/// Returns list of directory prefixes found (e.g., ["target/", "dubnium/target/"]).
-pub fn detect_suspect_tracked(path: &Path) -> Vec<String> {
+/// Detect known build/artifact directories present locally and not covered
+/// by the root .gitignore (regardless of git tracking). Scans root + nested
+/// subprojects. Returns directory prefixes (e.g., "joris/target/").
+pub fn detect_suspect_unignored(path: &Path) -> Vec<String> {
     const SUSPECT: &[&str] = &[
         "target", "node_modules", ".next", "dist",
         ".svelte-kit", "__pycache__", ".dart_tool",
     ];
 
+    let ignored = read_gitignore_patterns(path);
     let mut found = BTreeSet::new();
 
-    // Check root-level suspects
     for dir in SUSPECT {
-        if path.join(dir).is_dir() && is_dir_in_index(path, dir) {
-            found.insert(format!("{}/", dir));
+        if path.join(dir).is_dir() {
+            let entry = format!("{}/", dir);
+            if !ignored.contains(&entry) {
+                found.insert(entry);
+            }
         }
     }
 
-    // Check nested subprojects (one level deep)
     if let Ok(entries) = std::fs::read_dir(path) {
         for entry in entries.flatten() {
             let ep = entry.path();
@@ -202,8 +204,11 @@ pub fn detect_suspect_tracked(path: &Path) -> Vec<String> {
 
             for dir in sub_suspects {
                 let nested = format!("{}/{}", name, dir);
-                if ep.join(dir).is_dir() && is_dir_in_index(path, &nested) {
-                    found.insert(format!("{}/", nested));
+                if ep.join(dir).is_dir() {
+                    let pattern = format!("{}/", nested);
+                    if !ignored.contains(&pattern) {
+                        found.insert(pattern);
+                    }
                 }
             }
         }
@@ -212,15 +217,186 @@ pub fn detect_suspect_tracked(path: &Path) -> Vec<String> {
     found.into_iter().collect()
 }
 
-fn is_dir_in_index(repo_path: &Path, dir: &str) -> bool {
-    let pattern = format!("{}/", dir);
-    Command::new("git")
-        .args(["ls-files", "--cached", &pattern])
-        .current_dir(repo_path)
+/// Detect sensitive files (env, ssh keys, certs) present in the working tree
+/// and not covered by .gitignore. Uses `git ls-files --others --cached
+/// --exclude-standard` so .gitignore-covered paths are filtered out by git.
+/// Returns repo-relative file paths.
+pub fn detect_unignored_sensitive(path: &Path) -> Vec<String> {
+    let listing = Command::new("git")
+        .args(["ls-files", "--cached", "--others", "--exclude-standard"])
+        .current_dir(path)
         .output()
         .ok()
-        .map(|o| o.status.success() && !o.stdout.is_empty())
-        .unwrap_or(false)
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+        .unwrap_or_default();
+
+    let mut found = BTreeSet::new();
+    for line in listing.lines() {
+        let p = line.trim();
+        if p.is_empty() { continue; }
+        let basename = match Path::new(p).file_name().and_then(|n| n.to_str()) {
+            Some(s) => s,
+            None => continue,
+        };
+        if is_sensitive_basename(basename) {
+            found.insert(p.to_string());
+        }
+    }
+    found.into_iter().collect()
+}
+
+/// Detect large data dumps (`.sql`, `.csv` > 100 KiB) present and not ignored.
+/// Returns (relative path, size in bytes) tuples.
+pub fn detect_unignored_large_data(path: &Path) -> Vec<(String, u64)> {
+    const THRESHOLD: u64 = 100 * 1024;
+    let listing = Command::new("git")
+        .args(["ls-files", "--cached", "--others", "--exclude-standard"])
+        .current_dir(path)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+        .unwrap_or_default();
+
+    let mut found: Vec<(String, u64)> = Vec::new();
+    for line in listing.lines() {
+        let p = line.trim();
+        if p.is_empty() { continue; }
+        let basename = match Path::new(p).file_name().and_then(|n| n.to_str()) {
+            Some(s) => s,
+            None => continue,
+        };
+        let ext = basename.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+        if !matches!(ext.as_str(), "sql" | "csv") { continue; }
+        if let Ok(meta) = std::fs::metadata(path.join(p)) {
+            if meta.len() > THRESHOLD {
+                found.push((p.to_string(), meta.len()));
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+fn is_sensitive_basename(name: &str) -> bool {
+    if name == ".env" { return true; }
+    if name.starts_with(".env.") {
+        // Skip canonical "template" variants meant to be committed.
+        const SAFE_SUFFIX: &[&str] = &[".example", ".sample", ".template", ".dist"];
+        if !SAFE_SUFFIX.iter().any(|s| name.ends_with(s)) {
+            return true;
+        }
+    }
+    if matches!(name, "id_rsa" | "id_dsa" | "id_ed25519" | "id_ecdsa") {
+        return true;
+    }
+    if let Some(ext) = name.rsplit('.').next() {
+        if matches!(ext.to_ascii_lowercase().as_str(), "pem" | "p12" | "pfx") {
+            return true;
+        }
+    }
+    false
+}
+
+/// Read the root .gitignore patterns into a set of trimmed non-empty,
+/// non-comment lines. Returns empty set if file is absent.
+fn read_gitignore_patterns(path: &Path) -> HashSet<String> {
+    let mut set = HashSet::new();
+    if let Ok(content) = std::fs::read_to_string(path.join(".gitignore")) {
+        for line in content.lines() {
+            let l = line.trim();
+            if l.is_empty() || l.starts_with('#') { continue; }
+            set.insert(l.to_string());
+        }
+    }
+    set
+}
+
+/// List nested .gitignore files (one level deep, excluding root).
+/// Returns relative paths like "joris/.gitignore".
+pub fn find_nested_gitignores(path: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries.flatten() {
+            let ep = entry.path();
+            if !ep.is_dir() { continue; }
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with('.') { continue; }
+            if ep.join(".gitignore").is_file() {
+                out.push(format!("{}/.gitignore", name));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// Append entries to the root .gitignore under a "Sodium auto-added" section.
+/// Skips entries already present. Returns number actually added.
+pub fn append_to_root_gitignore(path: &Path, entries: &[String]) -> usize {
+    let gi_path = path.join(".gitignore");
+    let existing = std::fs::read_to_string(&gi_path).unwrap_or_default();
+    let existing_set = read_gitignore_patterns(path);
+
+    let mut seen: HashSet<String> = existing_set.clone();
+    let mut to_add: Vec<&String> = Vec::new();
+    for e in entries {
+        if seen.insert(e.clone()) {
+            to_add.push(e);
+        }
+    }
+    if to_add.is_empty() { return 0; }
+
+    let header = "# ── Sodium auto-added ──";
+    let mut new_content = existing.clone();
+    if !new_content.is_empty() && !new_content.ends_with('\n') {
+        new_content.push('\n');
+    }
+    if !new_content.contains(header) {
+        if !new_content.is_empty() {
+            new_content.push('\n');
+        }
+        new_content.push_str(header);
+        new_content.push('\n');
+    }
+    for e in &to_add {
+        new_content.push_str(e);
+        new_content.push('\n');
+    }
+    let _ = std::fs::write(&gi_path, new_content);
+    to_add.len()
+}
+
+/// Merge a nested .gitignore into the root one (prefixed with subdir path)
+/// and delete the source file. Returns number of patterns merged.
+pub fn merge_nested_gitignore(path: &Path, nested_relpath: &str) -> Result<usize, String> {
+    let nested_full = path.join(nested_relpath);
+    let content = std::fs::read_to_string(&nested_full)
+        .map_err(|e| format!("read {}: {}", nested_relpath, e))?;
+
+    let prefix = nested_relpath
+        .strip_suffix("/.gitignore")
+        .ok_or_else(|| "invalid nested gitignore path".to_string())?;
+
+    let mut prefixed: Vec<String> = Vec::new();
+    for line in content.lines() {
+        let l = line.trim();
+        if l.is_empty() || l.starts_with('#') { continue; }
+        let (neg, pat) = if let Some(rest) = l.strip_prefix('!') {
+            ("!", rest)
+        } else {
+            ("", l)
+        };
+        let anchored = pat.strip_prefix('/').unwrap_or(pat);
+        prefixed.push(format!("{}{}/{}", neg, prefix, anchored));
+    }
+
+    let count = prefixed.len();
+    append_to_root_gitignore(path, &prefixed);
+    std::fs::remove_file(&nested_full)
+        .map_err(|e| format!("remove {}: {}", nested_relpath, e))?;
+    Ok(count)
 }
 
 /// List tracked files that match current .gitignore patterns.

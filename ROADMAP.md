@@ -15,121 +15,210 @@ Formats :
     - Description libre de la tache
     - Résultat : texte libre du resultat
   - [x] #TT124 : tache terminee
-  - [ ] Nouvelle tache sans #TT (Shannon l'attribuera)
+  - [ ] Nouvelle tache sans #TT (Titan l'attribuera)
 -->
 
 <!-- TANTALE:TASKS -->
-- [x] #TT658 : Commit : affichage fichiers + choix sélectif (régression git.sh)
-  - Statut : Terminé
-- [x] #TT664 : Commit amélioré (liste fichiers, choix sélectif, diff résumé)
-  - Statut : Terminé
-- [x] #TT654 : Scaffold projet (cargo init, structure, boucle événementielle, thème)
-  - Statut : Terminé
-- [x] #TT655 : Header / Dashboard (logo, GITCON, infos repo, branches, sparkline)
-  - Statut : Terminé
-- [x] #TT656 : Menu actions (navigation, overlays, actions git)
-  - Statut : Terminé
-- [x] #TT657 : Actions git (reinit, commit, push, fetch, merge, switch, backup, history, gitignore)
-  - Statut : Terminé
-- [ ] #TT659 : Pull (action manquante dans le workflow)
+<!-- TT569 -->
+- [ ] #TT569 : Pull (action manquante dans le workflow)
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [x] #TT660 : Configuration multi-projets (sodium.toml, dev_root, remote)
-  - Statut : Terminé
-- [x] #TT661 : Vue projets (liste, statut, navigation, scroll)
-  - Statut : Terminé
-- [ ] #TT665 : Action git pull origin (rebase vs merge configurable)
+<!-- /TT569 -->
+<!-- TT575 -->
+- [ ] #TT575 : Action git pull origin (rebase vs merge configurable)
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT691 : Diff intégré dans la TUI (avant commit, avant merge)
+<!-- /TT575 -->
+<!-- TT601 -->
+- [ ] #TT601 : Diff intégré dans la TUI (avant commit, avant merge)
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT666 : Stash rapide (save, pop, liste, auto avant switch)
+<!-- /TT601 -->
+<!-- TT576 -->
+- [ ] #TT576 : Stash rapide (save, pop, liste, auto avant switch)
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT667 : Raccourci [f] fetch depuis liste projets
+<!-- /TT576 -->
+<!-- TT577 -->
+- [ ] #TT577 : Raccourci [f] fetch depuis liste projets
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT668 : Raccourci [p] push depuis liste projets
+<!-- /TT577 -->
+<!-- TT578 -->
+- [ ] #TT578 : Raccourci [p] push depuis liste projets
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT669 : Raccourci [P] pull depuis liste projets
+<!-- /TT578 -->
+<!-- TT579 -->
+- [ ] #TT579 : Raccourci [P] pull depuis liste projets
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT671 : Batch operations (sélection multi-projets, fetch/pull all)
+<!-- /TT579 -->
+<!-- TT581 -->
+- [ ] #TT581 : Batch operations (sélection multi-projets, fetch/pull all)
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT675 : Recherche / filtre projets par nom en temps réel
+<!-- /TT581 -->
+<!-- TT585 -->
+- [ ] #TT585 : Recherche / filtre projets par nom en temps réel
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT679 : Détection conflits potentiels avant merge (overlap fichiers)
+<!-- /TT585 -->
+<!-- TT589 -->
+- [ ] #TT589 : Détection conflits potentiels avant merge (overlap fichiers)
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT681 : Synchronisation assistée (fetch → pull → merge → résolution → push)
+<!-- /TT589 -->
+<!-- TT591 -->
+- [ ] #TT591 : Synchronisation assistée (fetch → pull → merge → résolution → push)
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT682 : Diff avant merge (résumé fichiers impactés)
+<!-- /TT591 -->
+<!-- TT592 -->
+- [ ] #TT592 : Diff avant merge (résumé fichiers impactés)
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT688 : Vue log scrollable (git log --graph en TUI)
+<!-- /TT592 -->
+<!-- TT598 -->
+- [ ] #TT598 : Vue log scrollable (git log --graph en TUI)
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT662 : Ajout / suppression de projets depuis la TUI
+<!-- /TT598 -->
+<!-- TT572 -->
+- [ ] #TT572 : Ajout / suppression de projets depuis la TUI
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT663 : Remote configurable par projet
+<!-- /TT572 -->
+<!-- TT573 -->
+- [ ] #TT573 : Remote configurable par projet
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT670 : Feedback inline sur ligne projet (spinner/ok/error)
+<!-- /TT573 -->
+<!-- TT580 -->
+- [ ] #TT580 : Feedback inline sur ligne projet (spinner/ok/error)
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT672 : Barre de progression globale batch
+<!-- /TT580 -->
+<!-- TT582 -->
+- [ ] #TT582 : Barre de progression globale batch
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT673 : Résumé batch (fetched, errors)
+<!-- /TT582 -->
+<!-- TT583 -->
+- [ ] #TT583 : Résumé batch (fetched, errors)
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT676 : Afficher branches remote avec auteur (dernier commit)
+<!-- /TT583 -->
+<!-- TT586 -->
+- [ ] #TT586 : Afficher branches remote avec auteur (dernier commit)
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT677 : Indicateur visuel collaborateur actif sur branche
+<!-- /TT586 -->
+<!-- TT587 -->
+- [ ] #TT587 : Indicateur visuel collaborateur actif sur branche
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT680 : Indicateur conflit potentiel dans liste projets
+<!-- /TT587 -->
+<!-- TT590 -->
+- [ ] #TT590 : Indicateur conflit potentiel dans liste projets
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT683 : Aide résolution conflits (liste fichiers, ouverture éditeur)
+<!-- /TT590 -->
+<!-- TT593 -->
+- [ ] #TT593 : Aide résolution conflits (liste fichiers, ouverture éditeur)
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT684 : Contrôle d'accès SSH par repo (private/team, chmod/chgrp)
+<!-- /TT593 -->
+<!-- TT594 -->
+- [ ] #TT594 : Contrôle d'accès SSH par repo (private/team, chmod/chgrp)
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT685 : Déclaration utilisateurs dans sodium.toml
+<!-- /TT594 -->
+<!-- TT595 -->
+- [ ] #TT595 : Déclaration utilisateurs dans sodium.toml
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT689 : Détail d'un commit (diff, fichiers) sur Enter
+<!-- /TT595 -->
+<!-- TT599 -->
+- [ ] #TT599 : Détail d'un commit (diff, fichiers) sur Enter
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT692 : Colorisation syntaxique diff (syntect)
+<!-- /TT599 -->
+<!-- TT602 -->
+- [ ] #TT602 : Colorisation syntaxique diff (syntect)
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT693 : Navigation fichier par fichier dans diff
+<!-- /TT602 -->
+<!-- TT603 -->
+- [ ] #TT603 : Navigation fichier par fichier dans diff
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT694 : Gestion tags (créer, lister, pousser)
+<!-- /TT603 -->
+<!-- TT604 -->
+- [ ] #TT604 : Gestion tags (créer, lister, pousser)
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT696 : Watch mode (auto-refresh liste projets, détection push collègue)
+<!-- /TT604 -->
+<!-- TT606 -->
+- [ ] #TT606 : Watch mode (auto-refresh liste projets, détection push collègue)
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT699 : CI GitHub Actions (Linux musl, macOS x86+arm, Windows msvc)
+<!-- /TT606 -->
+<!-- TT609 -->
+- [ ] #TT609 : CI GitHub Actions (Linux musl, macOS x86+arm, Windows msvc)
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT700 : Binaire unique sans dépendance
+<!-- /TT609 -->
+<!-- TT610 -->
+- [ ] #TT610 : Binaire unique sans dépendance
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT674 : Card Activity optionnelle (show_activity config)
+<!-- /TT610 -->
+<!-- TT584 -->
+- [ ] #TT584 : Card Activity optionnelle (show_activity config)
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT678 : Colonne auteur dans card BRANCHES
+<!-- /TT584 -->
+<!-- TT588 -->
+- [ ] #TT588 : Colonne auteur dans card BRANCHES
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT686 : Menu action Access control dans vue projet
+<!-- /TT588 -->
+<!-- TT596 -->
+- [ ] #TT596 : Menu action Access control dans vue projet
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT687 : Affichage statut accès dans liste projets
+<!-- /TT596 -->
+<!-- TT597 -->
+- [ ] #TT597 : Affichage statut accès dans liste projets
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT695 : Convention de versioning configurable
+<!-- /TT597 -->
+<!-- TT605 -->
+- [ ] #TT605 : Convention de versioning configurable
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT697 : Notification visuelle changement remote
+<!-- /TT605 -->
+<!-- TT607 -->
+- [ ] #TT607 : Notification visuelle changement remote
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT698 : Notifications système (alerte push collègue, bell terminal)
+<!-- /TT607 -->
+<!-- TT608 -->
+- [ ] #TT608 : Notifications système (alerte push collègue, bell terminal)
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT701 : Script d'install (curl | sh)
+<!-- /TT608 -->
+<!-- TT611 -->
+- [ ] #TT611 : Script d'install (curl | sh)
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [ ] #TT702 : Packages distribution (.deb, .rpm, Homebrew, winget/scoop)
+<!-- /TT611 -->
+<!-- TT612 -->
+- [ ] #TT612 : Packages distribution (.deb, .rpm, Homebrew, winget/scoop)
+  - Màj: 2026-04-02 16:41
   - Statut : Backlog
-- [x] #TT703 : Détection proactive des dossiers suspects trackés
-  - début: 2026-04-02 12:38 | fin: 2026-04-02 12:45
-  - Statut : Terminé | temps: 4
-  - Alerte GITCON à l'entrée d'un projet quand des dossiers build (target/, node_modules/, .next/, etc.) sont trackés. Détection root + sous-projets imbriqués.
-  - Résultat : Ajout de detect_suspect_tracked() dans git_ops.rs + notification dans enter_project(). Scanne les dossiers suspects racine et les sous-projets (Cargo.toml, package.json, go.mod, pubspec.yaml).
-- [x] #TT704 : Génération .gitignore : détection des sous-projets imbriqués
-  - début: 2026-04-02 12:38 | fin: 2026-04-02 12:45
-  - Statut : Terminé | temps: 1
-  - generate_gitignore() scanne les sous-dossiers pour Cargo.toml, package.json, go.mod, pubspec.yaml et ajoute les patterns build correspondants.
-  - Résultat : Section "Nested subprojects" ajoutée au .gitignore généré (subdir/target/, subdir/node_modules/, etc.).
-- [x] #TT705 : Nettoyage auto du cache git au commit
-  - début: 2026-04-02 12:38 | fin: 2026-04-02 12:47
-  - Statut : Terminé | temps: 1
-  - Avant staging, git_commit() appelle git_clean_tracked_ignored() qui exécute git rm --cached sur les fichiers trackés matchant le .gitignore. Silencieux, fichiers conservés sur disque.
-  - Résultat : Nettoyage auto intégré dans git_commit(). Le nombre de fichiers nettoyés est affiché dans la notification de commit.
+<!-- /TT612 -->
 <!-- /TANTALE:TASKS -->
 
 <!-- TANTALE:NOTES -->

@@ -127,6 +127,116 @@ fn render_project_list(f: &mut Frame, app: &App, area: Rect) {
     render_server_card(f, app, chunks[1]);
     render_project_cards(f, app, chunks[2]);
     render_project_list_footer(f, app, chunks[3]);
+
+    // Consolidated activity heatmap, overlaid bottom-right of projects card
+    const ACT_W: u16 = 22;
+    const ACT_H: u16 = 10;
+    if chunks[2].width >= ACT_W + 2 && chunks[2].height >= ACT_H + 2 {
+        let rect = Rect {
+            x: chunks[2].x + chunks[2].width.saturating_sub(ACT_W + 1),
+            y: chunks[2].y + chunks[2].height.saturating_sub(ACT_H + 1),
+            width: ACT_W,
+            height: ACT_H,
+        };
+        render_consolidated_activity(f, app, rect);
+    }
+}
+
+fn render_consolidated_activity(f: &mut Frame, app: &App, area: Rect) {
+    f.render_widget(Clear, area);
+
+    let grid = &app.consolidated_activity;
+    const DAYS: usize = 60;
+    const COLS: usize = 9;
+
+    let block = Block::default()
+        .title(Line::from(vec![
+            Span::styled(" ⚡ ", Style::default().fg(theme::ORANGE)),
+            Span::styled("ACTIVITY ", theme::title_style()),
+        ]))
+        .borders(Borders::ALL)
+        .border_style(theme::border_style())
+        .style(Style::default().bg(theme::BG_CARD));
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let inner_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(7), // Heatmap rows = days of week
+            Constraint::Length(1), // Stats
+        ])
+        .split(inner);
+
+    const HEAT: [Color; 5] = [
+        Color::Rgb(25, 32, 45),
+        Color::Rgb(14, 68, 41),
+        Color::Rgb(0, 109, 50),
+        Color::Rgb(38, 166, 65),
+        Color::Rgb(57, 211, 83),
+    ];
+
+    let now = chrono::Utc::now();
+    let today_dow = now.weekday().num_days_from_monday() as usize;
+    let total_days = grid.len();
+
+    let mut heatmap: [[Option<u32>; COLS]; 7] = [[None; COLS]; 7];
+    let mut max_ops: u32 = 0;
+    let mut total_ops: u32 = 0;
+
+    for (idx, day) in grid.iter().enumerate() {
+        let days_ago = (total_days - 1 - idx) as i64;
+        if days_ago >= DAYS as i64 || days_ago < 0 { continue; }
+        let dow = ((today_dow as i64 + 7 - (days_ago % 7)) % 7) as usize;
+        let weeks_ago = (days_ago + dow as i64 - today_dow as i64) / 7;
+        if weeks_ago >= 0 && (weeks_ago as usize) < COLS {
+            let col = COLS - 1 - weeks_ago as usize;
+            let val = day.total() as u32;
+            heatmap[dow][col] = Some(val);
+            if val > max_ops { max_ops = val; }
+            total_ops += val;
+        }
+    }
+
+    let day_labels = ["L", "M", "M", "J", "V", "S", "D"];
+    let mut lines = Vec::new();
+    for (row, label) in day_labels.iter().enumerate() {
+        let mut spans = vec![
+            Span::styled(format!("{} ", label), Style::default().fg(theme::FG_DIM)),
+        ];
+        for col in 0..COLS {
+            match heatmap[row][col] {
+                None => spans.push(Span::raw("  ")),
+                Some(val) => {
+                    let level = if val == 0 {
+                        0
+                    } else if max_ops <= 4 {
+                        (val as usize).min(4)
+                    } else {
+                        let pct = val as f32 / max_ops as f32;
+                        if pct <= 0.25 { 1 }
+                        else if pct <= 0.50 { 2 }
+                        else if pct <= 0.75 { 3 }
+                        else { 4 }
+                    };
+                    spans.push(Span::styled("█ ", Style::default().fg(HEAT[level])));
+                }
+            }
+        }
+        lines.push(Line::from(spans));
+    }
+    f.render_widget(Paragraph::new(lines), inner_chunks[0]);
+
+    let stats = Line::from(vec![
+        Span::raw(" "),
+        Span::styled(
+            format!("{}", total_ops),
+            Style::default().fg(theme::CYAN).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(" actions / 60d", Style::default().fg(theme::FG_DIM)),
+    ]);
+    f.render_widget(Paragraph::new(stats), inner_chunks[1]);
 }
 
 fn render_logo(f: &mut Frame, app: &App, area: Rect) {
@@ -1367,12 +1477,14 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
             Line::from(Span::styled("  ", Style::default()))
         }
     } else if app.is_multi_project() {
+        let show_g = !app.gitcon_queue.is_empty();
+        let extra = if show_g { 14 } else { 0 };
         let branding = format!(
             "{:>width$}",
             format!("⚛ sodium v{}", include_str!("../VERSION").trim()),
-            width = area.width.saturating_sub(65) as usize
+            width = area.width.saturating_sub(65 + extra) as usize
         );
-        Line::from(vec![
+        let mut spans = vec![
             Span::styled("  [Esc]", Style::default().fg(theme::CYAN).add_modifier(Modifier::BOLD)),
             Span::styled(" back  ", Style::default().fg(theme::FG_DIM)),
             Span::styled("[Enter]", Style::default().fg(theme::CYAN).add_modifier(Modifier::BOLD)),
@@ -1381,23 +1493,35 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
             Span::styled(" navigate  ", Style::default().fg(theme::FG_DIM)),
             Span::styled("[r]", Style::default().fg(theme::CYAN).add_modifier(Modifier::BOLD)),
             Span::styled(" refresh", Style::default().fg(theme::FG_DIM)),
-            Span::styled(branding, Style::default().fg(theme::FG_DIM)),
-        ])
+        ];
+        if show_g {
+            spans.push(Span::styled("  [g]", Style::default().fg(theme::ORANGE).add_modifier(Modifier::BOLD)));
+            spans.push(Span::styled(" fix", Style::default().fg(theme::ORANGE)));
+        }
+        spans.push(Span::styled(branding, Style::default().fg(theme::FG_DIM)));
+        Line::from(spans)
     } else {
+        let show_g = !app.gitcon_queue.is_empty();
+        let extra = if show_g { 14 } else { 0 };
         let branding = format!(
             "{:>width$}",
             format!("⚛ sodium v{}", include_str!("../VERSION").trim()),
-            width = area.width.saturating_sub(45) as usize
+            width = area.width.saturating_sub(45 + extra) as usize
         );
-        Line::from(vec![
+        let mut spans = vec![
             Span::styled("  [Esc]", Style::default().fg(theme::CYAN).add_modifier(Modifier::BOLD)),
             Span::styled(" quit  ", Style::default().fg(theme::FG_DIM)),
             Span::styled("[Enter]", Style::default().fg(theme::CYAN).add_modifier(Modifier::BOLD)),
             Span::styled(" select  ", Style::default().fg(theme::FG_DIM)),
             Span::styled("[↑↓]", Style::default().fg(theme::CYAN).add_modifier(Modifier::BOLD)),
             Span::styled(" navigate", Style::default().fg(theme::FG_DIM)),
-            Span::styled(branding, Style::default().fg(theme::FG_DIM)),
-        ])
+        ];
+        if show_g {
+            spans.push(Span::styled("  [g]", Style::default().fg(theme::ORANGE).add_modifier(Modifier::BOLD)));
+            spans.push(Span::styled(" fix", Style::default().fg(theme::ORANGE)));
+        }
+        spans.push(Span::styled(branding, Style::default().fg(theme::FG_DIM)));
+        Line::from(spans)
     };
 
     f.render_widget(Paragraph::new(line), inner);
@@ -1409,7 +1533,10 @@ fn render_input_overlay(f: &mut Frame, app: &App, area: Rect) {
     match &app.input_mode {
         InputMode::Normal => return,
         InputMode::TextInput { prompt, .. } | InputMode::Confirm { prompt, .. } => {
-            let width = 60u16.min(area.width.saturating_sub(4));
+            // Width adapts to prompt length (cap at terminal width − 4)
+            let prompt_w = prompt.chars().count() as u16 + 8;
+            let desired = prompt_w.max(60).min(100);
+            let width = desired.min(area.width.saturating_sub(4));
             let height = 5u16;
             let x = (area.width.saturating_sub(width)) / 2;
             let y = (area.height.saturating_sub(height)) / 2;

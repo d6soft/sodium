@@ -1,5 +1,5 @@
 use crate::config::SodiumConfig;
-use crate::git::{self, FileEntry, ProjectSummary, RepoInfo, ServerInfo};
+use crate::git::{self, DayActivity, FileEntry, ProjectSummary, RepoInfo, ServerInfo};
 use crate::git_ops;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -70,6 +70,42 @@ pub enum InputPurpose {
 pub enum ConfirmPurpose {
     Reinit,
     DeleteBareRepo(String),
+    FixGitconBuildDir(String),
+    FixGitconNestedGitignore(String),
+    FixGitconSensitiveFile(String),
+    FixGitconLargeFile(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum GitconItem {
+    SensitiveFile(String),
+    LargeFile { path: String, size: u64 },
+    BuildDir(String),
+    NestedGitignore(String),
+}
+
+impl GitconItem {
+    pub fn skip_key(&self) -> String {
+        match self {
+            GitconItem::SensitiveFile(p) => format!("sensitive:{}", p),
+            GitconItem::LargeFile { path, .. } => format!("large:{}", path),
+            GitconItem::BuildDir(d) => format!("build:{}", d),
+            GitconItem::NestedGitignore(n) => format!("nested:{}", n),
+        }
+    }
+}
+
+fn human_size(bytes: u64) -> String {
+    const KIB: f64 = 1024.0;
+    const MIB: f64 = 1024.0 * 1024.0;
+    let b = bytes as f64;
+    if b >= MIB {
+        format!("{:.1} Mio", b / MIB)
+    } else if b >= KIB {
+        format!("{:.0} kio", b / KIB)
+    } else {
+        format!("{} o", bytes)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -146,6 +182,12 @@ pub struct App {
     pub server_focused: bool,
     // True when the current project has no .git
     pub is_no_repo: bool,
+    // GITCON fixable items queue (recomputed on entry / after action)
+    pub gitcon_queue: Vec<GitconItem>,
+    // Items skipped during current session (key = item.skip_key())
+    pub gitcon_skipped: HashSet<String>,
+    // 91-day consolidated activity grid across all projects (project list view)
+    pub consolidated_activity: Vec<DayActivity>,
 }
 
 const SUBTITLES: &[&str] = &[
@@ -191,6 +233,9 @@ impl App {
             server_info: None,
             server_focused: false,
             is_no_repo: false,
+            gitcon_queue: Vec::new(),
+            gitcon_skipped: HashSet::new(),
+            consolidated_activity: vec![DayActivity::default(); 91],
         };
         app.discover_projects();
         app
@@ -229,7 +274,11 @@ impl App {
             server_info: None,
             server_focused: false,
             is_no_repo: false,
+            gitcon_queue: Vec::new(),
+            gitcon_skipped: HashSet::new(),
+            consolidated_activity: vec![DayActivity::default(); 91],
         };
+        app.refresh_gitcon_queue();
         app.rebuild_menu();
         app
     }
@@ -240,7 +289,72 @@ impl App {
 
     pub fn refresh(&mut self) {
         self.repo_info = git::gather_repo_info(&self.repo_path).unwrap_or_default();
+        self.refresh_gitcon_queue();
         self.rebuild_menu();
+    }
+
+    /// Recompute the GITCON fixable-items queue from disk + skip set.
+    /// Order: sensitive files (security) → build dirs → nested .gitignore.
+    pub fn refresh_gitcon_queue(&mut self) {
+        if self.is_no_repo || self.repo_path.as_os_str().is_empty() {
+            self.gitcon_queue.clear();
+            return;
+        }
+        let mut out: Vec<GitconItem> = Vec::new();
+        for f in git_ops::detect_unignored_sensitive(&self.repo_path) {
+            let item = GitconItem::SensitiveFile(f);
+            if !self.gitcon_skipped.contains(&item.skip_key()) {
+                out.push(item);
+            }
+        }
+        for (p, size) in git_ops::detect_unignored_large_data(&self.repo_path) {
+            let item = GitconItem::LargeFile { path: p, size };
+            if !self.gitcon_skipped.contains(&item.skip_key()) {
+                out.push(item);
+            }
+        }
+        for d in git_ops::detect_suspect_unignored(&self.repo_path) {
+            let item = GitconItem::BuildDir(d);
+            if !self.gitcon_skipped.contains(&item.skip_key()) {
+                out.push(item);
+            }
+        }
+        for n in git_ops::find_nested_gitignores(&self.repo_path) {
+            let item = GitconItem::NestedGitignore(n);
+            if !self.gitcon_skipped.contains(&item.skip_key()) {
+                out.push(item);
+            }
+        }
+        self.gitcon_queue = out;
+    }
+
+    /// Open a Confirm prompt for the first GITCON item (no-op if queue empty).
+    pub fn open_gitcon_fix(&mut self) {
+        let first = match self.gitcon_queue.first().cloned() {
+            Some(i) => i,
+            None => return,
+        };
+        let (prompt, purpose) = match first {
+            GitconItem::SensitiveFile(p) => (
+                format!("Add to .gitignore (sensitive) '{}' ? [y/n]", p),
+                ConfirmPurpose::FixGitconSensitiveFile(p),
+            ),
+            GitconItem::LargeFile { path, size } => (
+                format!("Add to .gitignore (large {}) '{}' ? [y/n]", human_size(size), path),
+                ConfirmPurpose::FixGitconLargeFile(path),
+            ),
+            GitconItem::BuildDir(d) => (
+                format!("Add to .gitignore (build dir) '{}' ? [y/n]", d),
+                ConfirmPurpose::FixGitconBuildDir(d),
+            ),
+            GitconItem::NestedGitignore(n) => (
+                format!("Merge into root .gitignore + delete '{}' ? [y/n]", n),
+                ConfirmPurpose::FixGitconNestedGitignore(n),
+            ),
+        };
+        self.input_mode = InputMode::Confirm { prompt, purpose };
+        self.input_buffer.clear();
+        self.input_cursor = 0;
     }
 
     pub fn tick(&mut self) {
@@ -623,6 +737,67 @@ impl App {
                         self.notify("[ABORT] Deletion cancelled", false);
                     }
                 }
+                ConfirmPurpose::FixGitconBuildDir(dir) => {
+                    if Self::is_yes(&buf) {
+                        let n = git_ops::append_to_root_gitignore(&self.repo_path, &[dir.clone()]);
+                        if n > 0 {
+                            self.notify(format!("[GITCON] Added '{}' to .gitignore", dir), false);
+                        } else {
+                            self.notify(format!("[GITCON] '{}' already in .gitignore", dir), false);
+                        }
+                    } else {
+                        let key = GitconItem::BuildDir(dir.clone()).skip_key();
+                        self.gitcon_skipped.insert(key);
+                        self.notify(format!("[GITCON] Skipped '{}' for this session", dir), false);
+                    }
+                    self.refresh_gitcon_queue();
+                }
+                ConfirmPurpose::FixGitconLargeFile(file) => {
+                    if Self::is_yes(&buf) {
+                        let n = git_ops::append_to_root_gitignore(&self.repo_path, &[file.clone()]);
+                        if n > 0 {
+                            self.notify(format!("[GITCON] Added '{}' to .gitignore", file), false);
+                        } else {
+                            self.notify(format!("[GITCON] '{}' already in .gitignore", file), false);
+                        }
+                    } else {
+                        let key = format!("large:{}", file);
+                        self.gitcon_skipped.insert(key);
+                        self.notify(format!("[GITCON] Skipped '{}' for this session", file), false);
+                    }
+                    self.refresh_gitcon_queue();
+                }
+                ConfirmPurpose::FixGitconSensitiveFile(file) => {
+                    if Self::is_yes(&buf) {
+                        let n = git_ops::append_to_root_gitignore(&self.repo_path, &[file.clone()]);
+                        if n > 0 {
+                            self.notify(format!("[GITCON] Added '{}' to .gitignore", file), false);
+                        } else {
+                            self.notify(format!("[GITCON] '{}' already in .gitignore", file), false);
+                        }
+                    } else {
+                        let key = GitconItem::SensitiveFile(file.clone()).skip_key();
+                        self.gitcon_skipped.insert(key);
+                        self.notify(format!("[GITCON] Skipped '{}' for this session", file), false);
+                    }
+                    self.refresh_gitcon_queue();
+                }
+                ConfirmPurpose::FixGitconNestedGitignore(rel) => {
+                    if Self::is_yes(&buf) {
+                        match git_ops::merge_nested_gitignore(&self.repo_path, &rel) {
+                            Ok(count) => self.notify(
+                                format!("[GITCON] Merged {} pattern(s) from {} and deleted file", count, rel),
+                                false,
+                            ),
+                            Err(e) => self.notify(format!("[ERROR] {}", e), true),
+                        }
+                    } else {
+                        let key = GitconItem::NestedGitignore(rel.clone()).skip_key();
+                        self.gitcon_skipped.insert(key);
+                        self.notify(format!("[GITCON] Skipped '{}' for this session", rel), false);
+                    }
+                    self.refresh_gitcon_queue();
+                }
             },
             InputMode::Select { purpose, options, index, .. } => {
                 if let Some(selected) = options.get(index) {
@@ -799,6 +974,8 @@ impl App {
             &config.remote_host,
             &config.remote_path,
         ));
+        // Consolidated activity across all projects (used in project list bottom-right)
+        self.consolidated_activity = git::gather_consolidated_activity(&self.projects);
     }
 
     pub fn project_up(&mut self) {
@@ -830,16 +1007,15 @@ impl App {
                     }
                 }
             }
-            // TT703: Detect suspect tracked directories
-            if !is_no_repo {
-                let suspects = git_ops::detect_suspect_tracked(&self.repo_path);
-                if !suspects.is_empty() {
-                    let dirs = suspects.join(", ");
-                    self.notify(
-                        format!("[GITCON] Tracked build dirs detected: {} — clean with commit", dirs),
-                        true,
-                    );
-                }
+            // TT703/706: GITCON detections (build dirs not in .gitignore, nested .gitignore)
+            self.gitcon_skipped.clear();
+            self.refresh_gitcon_queue();
+            if !self.gitcon_queue.is_empty() {
+                let n = self.gitcon_queue.len();
+                self.notify(
+                    format!("[GITCON] {} fixable detection(s) — press [g] to review", n),
+                    true,
+                );
             }
             self.rebuild_menu();
             self.menu_index = if is_no_repo {
@@ -864,8 +1040,18 @@ impl App {
         self.is_no_repo = false;
         self.done_actions.clear();
         self.messages.clear();
+        self.gitcon_queue.clear();
+        self.gitcon_skipped.clear();
         self.discover_projects();
         self.screen = Screen::ProjectList;
+    }
+
+    fn is_yes(buf: &str) -> bool {
+        let b = buf.trim();
+        b.eq_ignore_ascii_case("y")
+            || b.eq_ignore_ascii_case("yes")
+            || b.eq_ignore_ascii_case("o")
+            || b.eq_ignore_ascii_case("oui")
     }
 
     pub fn refresh_projects(&mut self) {
@@ -1095,9 +1281,20 @@ impl App {
 
     fn do_merge(&mut self, branch: &str) {
         let on_main = self.repo_info.current_branch == "main";
+        let mut did_stash = false;
 
-        // If not on main, checkout main first
+        // If not on main, stash + checkout main first
         if !on_main {
+            // Stash any local changes to avoid checkout conflicts
+            if let Ok(stash_out) = Command::new("git")
+                .args(["stash", "push", "-m", "sodium-auto-merge"])
+                .current_dir(&self.repo_path)
+                .output()
+            {
+                let msg = String::from_utf8_lossy(&stash_out.stdout);
+                did_stash = !msg.contains("No local changes");
+            }
+
             let checkout = Command::new("git")
                 .args(["checkout", "main"])
                 .current_dir(&self.repo_path)
@@ -1106,10 +1303,23 @@ impl App {
                 Ok(o) if !o.status.success() => {
                     let err = String::from_utf8_lossy(&o.stderr);
                     self.notify(format!("[ERROR] checkout main: {}", err.trim()), true);
+                    // Restore stash before returning
+                    if did_stash {
+                        let _ = Command::new("git")
+                            .args(["stash", "pop"])
+                            .current_dir(&self.repo_path)
+                            .output();
+                    }
                     return;
                 }
                 Err(e) => {
                     self.notify(format!("[ERROR] {}", e), true);
+                    if did_stash {
+                        let _ = Command::new("git")
+                            .args(["stash", "pop"])
+                            .current_dir(&self.repo_path)
+                            .output();
+                    }
                     return;
                 }
                 _ => {}
@@ -1123,15 +1333,35 @@ impl App {
         match output {
             Ok(o) if o.status.success() => {
                 self.done_actions.insert(ActionKind::Merge);
+                if did_stash {
+                    let _ = Command::new("git")
+                        .args(["stash", "pop"])
+                        .current_dir(&self.repo_path)
+                        .output();
+                }
                 self.notify(format!("[SIGINT] '{}' merged into main", branch), false);
                 self.refresh();
             }
             Ok(o) => {
                 let err = String::from_utf8_lossy(&o.stderr);
+                if did_stash {
+                    let _ = Command::new("git")
+                        .args(["stash", "pop"])
+                        .current_dir(&self.repo_path)
+                        .output();
+                }
                 self.notify(format!("[ERROR] {}", err.trim()), true);
-                self.refresh(); // Refresh to show conflict state
+                self.refresh();
             }
-            Err(e) => self.notify(format!("[ERROR] {}", e), true),
+            Err(e) => {
+                if did_stash {
+                    let _ = Command::new("git")
+                        .args(["stash", "pop"])
+                        .current_dir(&self.repo_path)
+                        .output();
+                }
+                self.notify(format!("[ERROR] {}", e), true);
+            }
         }
     }
 

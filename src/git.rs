@@ -419,6 +419,27 @@ fn calc_file_status(repo: &Repository) -> FileStatus {
     }
 }
 
+/// Build a 91-day activity grid summed over all projects that have a repo.
+/// Each project's reflog contributes commits/merges/branches/pulls per day.
+pub fn gather_consolidated_activity(projects: &[ProjectSummary]) -> Vec<DayActivity> {
+    let mut grid: Vec<DayActivity> = vec![DayActivity::default(); 91];
+    for proj in projects {
+        if !proj.has_git { continue; }
+        let repo = match Repository::discover(&proj.path) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let local = calc_activity_grid(&repo);
+        for (i, day) in local.iter().enumerate() {
+            grid[i].commits = grid[i].commits.saturating_add(day.commits);
+            grid[i].merges = grid[i].merges.saturating_add(day.merges);
+            grid[i].branches = grid[i].branches.saturating_add(day.branches);
+            grid[i].pulls = grid[i].pulls.saturating_add(day.pulls);
+        }
+    }
+    grid
+}
+
 fn calc_activity_grid(repo: &Repository) -> Vec<DayActivity> {
     let mut grid = vec![DayActivity::default(); 91];
     let now = chrono::Utc::now().timestamp();
