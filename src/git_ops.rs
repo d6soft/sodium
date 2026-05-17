@@ -47,6 +47,36 @@ pub fn git_pull(path: &Path, branch: &str, rebase: bool) -> Result<String, Strin
     }
 }
 
+/// Push `branch` to the optional `github` remote (force-push, since origin is
+/// source of truth). Adds the `github` remote on first call if missing.
+/// Returns Some(" + GitHub") on success to suffix push messages, None otherwise.
+pub fn mirror_to_github(path: &Path, branch: &str, github_url: &str) -> Option<String> {
+    let check = Command::new("git")
+        .args(["remote", "get-url", "github"])
+        .current_dir(path)
+        .output();
+    let has_remote = check.map(|o| o.status.success()).unwrap_or(false);
+    if !has_remote {
+        let add = Command::new("git")
+            .args(["remote", "add", "github", github_url])
+            .current_dir(path)
+            .output();
+        if !add.map(|o| o.status.success()).unwrap_or(false) {
+            return None;
+        }
+    }
+
+    let push = Command::new("git")
+        .args(["push", "--force", "github", branch])
+        .current_dir(path)
+        .output();
+
+    match push {
+        Ok(o) if o.status.success() => Some(" + GitHub".into()),
+        _ => None,
+    }
+}
+
 pub fn git_push_main(path: &Path) -> Result<(String, usize), String> {
     let output = Command::new("git")
         .args(["push", "origin", "main"])
@@ -101,6 +131,74 @@ pub fn git_new_branch(path: &Path, name: &str) -> Result<String, String> {
         Ok(format!("Branch '{}' created & active", name))
     } else {
         let err = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(err)
+    }
+}
+
+/// Merge a feature branch into main. Stashes any local changes, checks out
+/// main if not already on it, runs `git merge <feature>`, then pops the stash.
+/// Leaves the repo on main on success or failure.
+pub fn git_merge_into_main(path: &Path, feature: &str) -> Result<String, String> {
+    if feature.is_empty() {
+        return Err("Empty feature branch name".into());
+    }
+    if feature == "main" {
+        return Err("Cannot merge main into itself".into());
+    }
+
+    let head = Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(path)
+        .output()
+        .map_err(|e| format!("{}", e))?;
+    let current = String::from_utf8_lossy(&head.stdout).trim().to_string();
+    let on_main = current == "main";
+
+    let mut did_stash = false;
+    if !on_main {
+        if let Ok(stash_out) = Command::new("git")
+            .args(["stash", "push", "-m", "sodium-auto-merge"])
+            .current_dir(path)
+            .output()
+        {
+            let msg = String::from_utf8_lossy(&stash_out.stdout);
+            did_stash = !msg.contains("No local changes");
+        }
+
+        let checkout = Command::new("git")
+            .args(["checkout", "main"])
+            .current_dir(path)
+            .output()
+            .map_err(|e| format!("{}", e))?;
+        if !checkout.status.success() {
+            let err = String::from_utf8_lossy(&checkout.stderr).trim().to_string();
+            if did_stash {
+                let _ = Command::new("git")
+                    .args(["stash", "pop"])
+                    .current_dir(path)
+                    .output();
+            }
+            return Err(format!("checkout main: {}", err));
+        }
+    }
+
+    let merge = Command::new("git")
+        .args(["merge", feature])
+        .current_dir(path)
+        .output()
+        .map_err(|e| format!("{}", e))?;
+
+    if did_stash {
+        let _ = Command::new("git")
+            .args(["stash", "pop"])
+            .current_dir(path)
+            .output();
+    }
+
+    if merge.status.success() {
+        Ok(format!("'{}' merged into main", feature))
+    } else {
+        let err = String::from_utf8_lossy(&merge.stderr).trim().to_string();
         Err(err)
     }
 }
@@ -279,6 +377,40 @@ pub fn detect_unignored_large_data(path: &Path) -> Vec<(String, u64)> {
     found
 }
 
+/// Detect archive files (`.zip`, `.rar`, `.7z`, `.tar`, `.tgz`, `.tbz2`,
+/// `.txz`, `.tzst`, `.iso`, `.dmg`) present and not ignored.
+/// Returns (relative path, size in bytes) tuples.
+pub fn detect_unignored_archives(path: &Path) -> Vec<(String, u64)> {
+    const ARCHIVE_EXTS: &[&str] = &[
+        "zip", "rar", "7z", "tar", "tgz", "tbz2", "txz", "tzst", "iso", "dmg",
+    ];
+    let listing = Command::new("git")
+        .args(["ls-files", "--cached", "--others", "--exclude-standard"])
+        .current_dir(path)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+        .unwrap_or_default();
+
+    let mut found: Vec<(String, u64)> = Vec::new();
+    for line in listing.lines() {
+        let p = line.trim();
+        if p.is_empty() { continue; }
+        let basename = match Path::new(p).file_name().and_then(|n| n.to_str()) {
+            Some(s) => s,
+            None => continue,
+        };
+        let ext = basename.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+        if !ARCHIVE_EXTS.contains(&ext.as_str()) { continue; }
+        if let Ok(meta) = std::fs::metadata(path.join(p)) {
+            found.push((p.to_string(), meta.len()));
+        }
+    }
+    found.sort();
+    found
+}
+
 fn is_sensitive_basename(name: &str) -> bool {
     if name == ".env" { return true; }
     if name.starts_with(".env.") {
@@ -414,6 +546,18 @@ pub fn git_tracked_ignored(path: &Path) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// Remove a single file from the git index (git rm --cached) without
+/// touching the working tree. Returns true if the rm command succeeded
+/// (which includes the case where the file was not tracked).
+pub fn git_rm_cached_one(path: &Path, file: &str) -> bool {
+    Command::new("git")
+        .args(["rm", "--cached", "--quiet", "--ignore-unmatch", "--", file])
+        .current_dir(path)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
 }
 
 /// Remove tracked files that match .gitignore from the index (git rm --cached).

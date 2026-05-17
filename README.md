@@ -49,7 +49,34 @@ activity_show = true
 github = "git@github.com:d6soft/sodium.git"
 ```
 
-## API headless
+## API headless et CLI JSON
+
+Sodium expose la même surface d'API via deux canaux : un **socket Unix** (mode serveur, plusieurs requêtes par connexion) et des **subcommands CLI** (invocation directe, une commande par appel). Les deux émettent le même format de réponse JSON.
+
+### Subcommands CLI
+
+Invocables depuis n'importe quel dossier projet — le repo est détecté via `git rev-parse --show-toplevel` sur `$PWD`, ou explicité avec `--path <dir>`.
+
+```bash
+sodium new-branch <name>
+sodium commit -m "<message>"
+sodium merge-main <feature>
+sodium push
+```
+
+**Sortie : JSON systématique sur stdout, une ligne par invocation.** Aucune écriture human-friendly. Codes de retour : `0` succès, `1` échec d'exécution, `2` usage incorrect ou repo introuvable.
+
+```bash
+$ sodium new-branch feature/foo
+{"ok":true,"action":"new-branch","message":"Branch 'feature/foo' created & active"}
+
+$ sodium push --path /not-a-repo
+{"ok":false,"action":"push","error":"not a git repository: /not-a-repo"}
+```
+
+Format unifié avec l'API socket : `{"ok": bool, "action": "...", "message": "...", "data": {...}, "error": "..."}` (champs absents quand non pertinents). Conçu pour scripts, hooks Git, CI, agents.
+
+### API socket Unix
 
 Sodium peut tourner en mode serveur sans TUI, exposant un socket Unix pour l'automatisation :
 

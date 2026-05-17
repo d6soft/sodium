@@ -1,5 +1,7 @@
 mod api;
 mod app;
+mod audit;
+mod cli;
 mod config;
 mod git;
 mod git_ops;
@@ -24,8 +26,14 @@ const TICK_RATE: Duration = Duration::from_millis(100);
 fn main() -> Result<()> {
     color_eyre::install()?;
 
-    // Parse --api mode
     let args: Vec<String> = std::env::args().collect();
+
+    // Subcommands: new-branch, commit, merge-main, push
+    if cli::try_dispatch(&args) {
+        return Ok(());
+    }
+
+    // Parse --api mode
     if args.iter().any(|a| a == "--api") {
         let api_idx = args.iter().position(|a| a == "--api").unwrap();
         let default_path = args.get(api_idx + 1)

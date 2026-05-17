@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use crate::{config, git, git_ops};
+use crate::{audit, config, git, git_ops};
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
@@ -23,23 +23,38 @@ enum ApiRequest {
     Commit { path: Option<String>, message: String, files: Option<Vec<String>> },
     NewBranch { path: Option<String>, name: String },
     SwitchBranch { path: Option<String>, branch: String },
+    MergeIntoMain { path: Option<String>, branch: String },
 }
 
 #[derive(Serialize)]
-struct ApiResponse {
-    ok: bool,
+pub struct ApiResponse {
+    pub ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    data: Option<Value>,
+    pub action: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
+    pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 impl ApiResponse {
-    fn success(data: Value) -> Self {
-        Self { ok: true, data: Some(data), error: None }
+    pub fn ok_msg(msg: impl Into<String>) -> Self {
+        Self { ok: true, action: None, message: Some(msg.into()), data: None, error: None }
     }
-    fn err(msg: String) -> Self {
-        Self { ok: false, data: None, error: Some(msg) }
+    pub fn ok_with(msg: impl Into<String>, data: Value) -> Self {
+        Self { ok: true, action: None, message: Some(msg.into()), data: Some(data), error: None }
+    }
+    pub fn ok_data(data: Value) -> Self {
+        Self { ok: true, action: None, message: None, data: Some(data), error: None }
+    }
+    pub fn err(msg: impl Into<String>) -> Self {
+        Self { ok: false, action: None, message: None, data: None, error: Some(msg.into()) }
+    }
+    pub fn with_action(mut self, action: &'static str) -> Self {
+        self.action = Some(action);
+        self
     }
 }
 
@@ -65,12 +80,58 @@ fn resolve_path(req_path: &Option<String>, default: &Option<PathBuf>) -> Result<
 }
 
 fn handle_request(req: ApiRequest, default_path: &Option<PathBuf>) -> ApiResponse {
+    let (action, req_path_str, args_repr) = describe_request(&req);
+    let audit_repo = req_path_str
+        .as_ref()
+        .and_then(|p| resolve_path(&Some(p.clone()), default_path).ok())
+        .or_else(|| default_path.clone())
+        .unwrap_or_else(|| PathBuf::from("-"));
+
+    let response = dispatch(req, default_path).with_action(action);
+
+    let result: Result<&str, &str> = if response.ok {
+        Ok("")
+    } else {
+        Err(response.error.as_deref().unwrap_or(""))
+    };
+    audit::log("api", &audit_repo, action, &args_repr, result);
+
+    response
+}
+
+fn describe_request(req: &ApiRequest) -> (&'static str, Option<String>, String) {
+    match req {
+        ApiRequest::Status { path } => ("status", path.clone(), String::new()),
+        ApiRequest::Branches { path } => ("branches", path.clone(), String::new()),
+        ApiRequest::Files { path } => ("files", path.clone(), String::new()),
+        ApiRequest::Gitcon { path } => ("gitcon", path.clone(), String::new()),
+        ApiRequest::Projects => ("projects", None, String::new()),
+        ApiRequest::Fetch { path } => ("fetch", path.clone(), String::new()),
+        ApiRequest::Pull { path, rebase } => (
+            "pull",
+            path.clone(),
+            format!("rebase={}", rebase.unwrap_or(true)),
+        ),
+        ApiRequest::Push { path } => ("push", path.clone(), String::new()),
+        ApiRequest::Backup { path } => ("backup", path.clone(), String::new()),
+        ApiRequest::Commit { path, message, .. } => ("commit", path.clone(), message.clone()),
+        ApiRequest::NewBranch { path, name } => ("new-branch", path.clone(), name.clone()),
+        ApiRequest::SwitchBranch { path, branch } => {
+            ("switch-branch", path.clone(), branch.clone())
+        }
+        ApiRequest::MergeIntoMain { path, branch } => {
+            ("merge-main", path.clone(), branch.clone())
+        }
+    }
+}
+
+fn dispatch(req: ApiRequest, default_path: &Option<PathBuf>) -> ApiResponse {
     match req {
         ApiRequest::Status { path } => {
             match resolve_path(&path, default_path) {
                 Ok(p) => match git::gather_repo_info(&p) {
-                    Some(info) => ApiResponse::success(serde_json::to_value(&info).unwrap()),
-                    None => ApiResponse::err("Not a git repository".into()),
+                    Some(info) => ApiResponse::ok_data(serde_json::to_value(&info).unwrap()),
+                    None => ApiResponse::err("Not a git repository"),
                 },
                 Err(e) => ApiResponse::err(e),
             }
@@ -78,8 +139,8 @@ fn handle_request(req: ApiRequest, default_path: &Option<PathBuf>) -> ApiRespons
         ApiRequest::Branches { path } => {
             match resolve_path(&path, default_path) {
                 Ok(p) => match git::gather_repo_info(&p) {
-                    Some(info) => ApiResponse::success(serde_json::to_value(&info.branches).unwrap()),
-                    None => ApiResponse::err("Not a git repository".into()),
+                    Some(info) => ApiResponse::ok_data(serde_json::to_value(&info.branches).unwrap()),
+                    None => ApiResponse::err("Not a git repository"),
                 },
                 Err(e) => ApiResponse::err(e),
             }
@@ -88,7 +149,7 @@ fn handle_request(req: ApiRequest, default_path: &Option<PathBuf>) -> ApiRespons
             match resolve_path(&path, default_path) {
                 Ok(p) => {
                     let entries = git::gather_file_entries(&p);
-                    ApiResponse::success(serde_json::to_value(&entries).unwrap())
+                    ApiResponse::ok_data(serde_json::to_value(&entries).unwrap())
                 }
                 Err(e) => ApiResponse::err(e),
             }
@@ -102,9 +163,9 @@ fn handle_request(req: ApiRequest, default_path: &Option<PathBuf>) -> ApiRespons
                             "label": info.gitcon.label(),
                             "subtitle": info.gitcon.subtitle(),
                         });
-                        ApiResponse::success(data)
+                        ApiResponse::ok_data(data)
                     }
-                    None => ApiResponse::err("Not a git repository".into()),
+                    None => ApiResponse::err("Not a git repository"),
                 },
                 Err(e) => ApiResponse::err(e),
             }
@@ -128,15 +189,15 @@ fn handle_request(req: ApiRequest, default_path: &Option<PathBuf>) -> ApiRespons
                         }
                     }
                     projects.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-                    ApiResponse::success(serde_json::to_value(&projects).unwrap())
+                    ApiResponse::ok_data(serde_json::to_value(&projects).unwrap())
                 }
-                None => ApiResponse::err("No sodium config found".into()),
+                None => ApiResponse::err("No sodium config found"),
             }
         }
         ApiRequest::Fetch { path } => {
             match resolve_path(&path, default_path) {
                 Ok(p) => match git_ops::git_fetch(&p) {
-                    Ok(msg) => ApiResponse::success(json!({ "message": msg })),
+                    Ok(msg) => ApiResponse::ok_msg(msg),
                     Err(e) => ApiResponse::err(e),
                 },
                 Err(e) => ApiResponse::err(e),
@@ -147,11 +208,11 @@ fn handle_request(req: ApiRequest, default_path: &Option<PathBuf>) -> ApiRespons
                 Ok(p) => {
                     let info = match git::gather_repo_info(&p) {
                         Some(i) => i,
-                        None => return ApiResponse::err("Not a git repository".into()),
+                        None => return ApiResponse::err("Not a git repository"),
                     };
                     let rb = rebase.unwrap_or(true);
                     match git_ops::git_pull(&p, &info.current_branch, rb) {
-                        Ok(msg) => ApiResponse::success(json!({ "message": msg })),
+                        Ok(msg) => ApiResponse::ok_msg(msg),
                         Err(e) => ApiResponse::err(e),
                     }
                 }
@@ -161,8 +222,7 @@ fn handle_request(req: ApiRequest, default_path: &Option<PathBuf>) -> ApiRespons
         ApiRequest::Push { path } => {
             match resolve_path(&path, default_path) {
                 Ok(p) => match git_ops::git_push_main(&p) {
-                    Ok((msg, cleaned)) => ApiResponse::success(json!({
-                        "message": msg,
+                    Ok((msg, cleaned)) => ApiResponse::ok_with(msg, json!({
                         "branches_cleaned": cleaned,
                     })),
                     Err(e) => ApiResponse::err(e),
@@ -175,10 +235,10 @@ fn handle_request(req: ApiRequest, default_path: &Option<PathBuf>) -> ApiRespons
                 Ok(p) => {
                     let info = match git::gather_repo_info(&p) {
                         Some(i) => i,
-                        None => return ApiResponse::err("Not a git repository".into()),
+                        None => return ApiResponse::err("Not a git repository"),
                     };
                     match git_ops::git_backup(&p, &info.current_branch) {
-                        Ok(msg) => ApiResponse::success(json!({ "message": msg })),
+                        Ok(msg) => ApiResponse::ok_msg(msg),
                         Err(e) => ApiResponse::err(e),
                     }
                 }
@@ -190,7 +250,7 @@ fn handle_request(req: ApiRequest, default_path: &Option<PathBuf>) -> ApiRespons
                 Ok(p) => {
                     let f = files.unwrap_or_default();
                     match git_ops::git_commit(&p, &message, &f) {
-                        Ok(msg) => ApiResponse::success(json!({ "message": msg })),
+                        Ok(msg) => ApiResponse::ok_msg(msg),
                         Err(e) => ApiResponse::err(e),
                     }
                 }
@@ -200,7 +260,7 @@ fn handle_request(req: ApiRequest, default_path: &Option<PathBuf>) -> ApiRespons
         ApiRequest::NewBranch { path, name } => {
             match resolve_path(&path, default_path) {
                 Ok(p) => match git_ops::git_new_branch(&p, &name) {
-                    Ok(msg) => ApiResponse::success(json!({ "message": msg })),
+                    Ok(msg) => ApiResponse::ok_msg(msg),
                     Err(e) => ApiResponse::err(e),
                 },
                 Err(e) => ApiResponse::err(e),
@@ -209,7 +269,16 @@ fn handle_request(req: ApiRequest, default_path: &Option<PathBuf>) -> ApiRespons
         ApiRequest::SwitchBranch { path, branch } => {
             match resolve_path(&path, default_path) {
                 Ok(p) => match git_ops::git_switch_branch(&p, &branch) {
-                    Ok(msg) => ApiResponse::success(json!({ "message": msg })),
+                    Ok(msg) => ApiResponse::ok_msg(msg),
+                    Err(e) => ApiResponse::err(e),
+                },
+                Err(e) => ApiResponse::err(e),
+            }
+        }
+        ApiRequest::MergeIntoMain { path, branch } => {
+            match resolve_path(&path, default_path) {
+                Ok(p) => match git_ops::git_merge_into_main(&p, &branch) {
+                    Ok(msg) => ApiResponse::ok_msg(msg),
                     Err(e) => ApiResponse::err(e),
                 },
                 Err(e) => ApiResponse::err(e),

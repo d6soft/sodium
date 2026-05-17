@@ -219,7 +219,125 @@ Formats :
   - Màj: 2026-04-02 16:41
   - Statut : Backlog
 <!-- /TT612 -->
+<!-- TT1503 -->
+- [x] #TT1503 : Subcommands CLI sodium pour usage depuis n'importe quel dossier projet
+  - début: 2026-05-17 11:56 | fin: 2026-05-17 12:03 | Màj: 2026-05-17 10:04
+  - Statut : Terminé | temps: 10
+### Description
+Ajouter des subcommands au binaire `sodium` pour invoquer les 4 ops Git les plus fréquentes depuis n'importe quel dossier projet, sans passer par la TUI ni par le daemon `--api`.
+
+Commandes à exposer :
+- `sodium new-branch <name>` — crée la branche depuis main
+- `sodium commit -m <msg>` — mode global, stage tout puis commit (équivalent bouton « Global » TUI). Réutilise `git_ops::git_commit` qui invoque déjà `git_clean_tracked_ignored` en pré-staging.
+- `sodium merge-main <feature>` — appelle la fonction extraite dans la tâche 2
+- `sodium push` — équivalent `git_push_main` + miroir GitHub si configuré
+
+Détails :
+- Auto-détection du repo via `git rev-parse --show-toplevel` sur `$PWD`
+- Flag `--path <dir>` optionnel pour override
+- Sortie : 1 ligne human-friendly sur stdout, code retour 0/1 pour scripting
+- Dispatcher partagé avec `api.rs` (factoriser `handle_request` en fonction commune)
+- Tooling : étendre l'usage de clap
+### Résultat
+Nouveau module `src/cli.rs` avec dispatch sur argv[1] (parsing manuel, pas besoin d'ajouter clap). Les 4 subcommands résolvent le repo via `git rev-parse --show-toplevel` ou `--path`, partagent les fonctions de `git_ops`, et reprennent la logique du miroir GitHub (extraite dans `git_ops::mirror_to_github`). `main.rs` invoque `cli::try_dispatch` avant le mode TUI / `--api`. Build release OK, tests d'usage et de path absent passent (exit 2 + message).
+<!-- /TT1503 -->
+<!-- TT1504 -->
+- [x] #TT1504 : Action API `merge_into_main` + extraction dans git_ops
+  - début: 2026-05-17 11:56 | fin: 2026-05-17 12:03 | Màj: 2026-05-17 10:05
+  - Statut : Terminé | temps: 6
+### Description
+Extraire la logique merge actuellement inline dans `app.rs` (lignes ~1255-1399, flow stash → switch main → git merge feature → stash pop) vers une fonction `git_ops::git_merge_into_main(repo: &Path, feature: &str) -> Result<String, String>`.
+
+Puis :
+- Ajouter le variant `ApiRequest::MergeIntoMain { path: Option<String>, branch: String }` dans `src/api.rs`
+- Brancher l'action dans `handle_request`
+- La TUI doit aussi utiliser la nouvelle fonction (suppression du code dupliqué dans app.rs)
+- La subcommand `sodium merge-main <feature>` (tâche 1) appelle directement cette fonction
+### Résultat
+Fonction `git_ops::git_merge_into_main(path, feature)` extraite avec garde-fous (rejet de `feature` vide ou égale à `main`). `app.rs::do_merge` réduit à un simple appel + notification (11 lignes au lieu de 85). Variant `ApiRequest::MergeIntoMain { path, branch }` ajouté et branché dans `handle_request`. Bonus : `git_ops::mirror_to_github` extrait aussi pour parité TUI/CLI.
+<!-- /TT1504 -->
+<!-- TT1505 -->
+- [x] #TT1505 : Skill Claude Code `/sodium-git` + amendement CLAUDE.md global
+  - début: 2026-05-17 11:56 | fin: 2026-05-17 12:03 | Màj: 2026-05-17 10:05
+  - Statut : Terminé | temps: 5
+### Description
+Créer un skill Claude Code (`~/.claude/skills/sodium-git/SKILL.md`) qui décrit les 4 commandes Sodium autorisées pour Claude Code dans n'importe quel projet :
+- `new-branch`, `commit`, `merge-main`, `push`
+- Convention de message commit (1-2 lignes courtes)
+- Nomenclature des branches (feature/xxx)
+- Note explicite : Claude peut invoquer ces 4 commandes sans confirmation, car Sodium applique les garde-fous projet (GITCON, miroir GitHub, scan suspects tracked, gitignore généré, clean tracked ignored).
+
+Amender `~/.claude/CLAUDE.md` global pour ajouter l'exception à la règle « pas de git » pour ces 4 commandes via Sodium uniquement.
+### Résultat
+Skill `~/.claude/skills/sodium-git/SKILL.md` créé, déjà reconnu dans la liste des skills disponibles. Documente les 4 commandes, conventions (message en français impératif, branches feature/fix), limites (pas de rebase/tag/reset/force-push), comportement attendu (annoncer, exécuter, ne pas redemander confirmation). `~/.claude/CLAUDE.md` global amendé : section « Déploiement et git » contient maintenant un bloc d'exception listant explicitement les 4 commandes autorisées via `sodium` uniquement.
+<!-- /TT1505 -->
+<!-- TT1506 -->
+- [x] #TT1506 : Audit log Sodium pour subcommands CLI et API socket
+  - début: 2026-05-17 12:08 | fin: 2026-05-17 12:11 | Màj: 2026-05-17 10:12
+  - Statut : Terminé | temps: 3
+### Description
+Ajouter un journal d'audit dédié à Sodium pour tracer toutes les invocations des subcommands CLI (`sodium new-branch | commit | merge-main | push`) ainsi que les requêtes reçues sur le socket Unix de l'API headless.
+
+**Motivation** : depuis la skill Claude Code `/sodium-git` (TT1505), ces 4 commandes peuvent être invoquées de manière autonome par Claude sans confirmation préalable. Un log centralisé facilite l'audit : « qui a déclenché quoi, quand, depuis quel cwd ».
+
+**Spécifications** :
+- Fichier : `~/.config/sodium/audit.log`
+- Rotation : pas pour l'instant (à voir si volume devient gênant)
+- Format ligne (à choisir entre tab-separated et pipe-separated lors de l'implémentation) :
+  - timestamp ISO-8601 local (ex: `2026-05-17T12:07:42+02:00`)
+  - source : `cli` ou `api`
+  - path résolu du repo (absolu)
+  - action (`new-branch`, `commit`, `merge-main`, `push`, `fetch`, `pull`, `status`, `branches`, etc.)
+  - arguments pertinents (nom de branche, message commit tronqué à 80 chars…)
+  - résultat : `ok` ou `err: <message tronqué>`
+
+**Implémentation** :
+- Nouveau module `src/audit.rs` exposant `audit::log(source, repo, action, args, result)`
+- Appelé depuis `cli.rs` pour chaque subcommand et depuis `api.rs::handle_request` pour chaque variant
+- Tolérant aux erreurs : si l'écriture échoue, ne pas faire échouer la commande (juste un eprintln warning en mode debug)
+- Création du dossier `~/.config/sodium/` à la volée si absent (déjà géré ailleurs dans le code via `config.rs`, voir s'il y a un helper réutilisable)
+
+**Rotation** ajoutée à la demande de Pierre : 1 fichier par semaine ISO + purge auto au-delà de 5 semaines.
+### Résultat
+Module `src/audit.rs` créé. Format **TSV** (timestamp ISO-8601 local | source | repo absolu | action | args | result). **Rotation hebdo** : un fichier `audit-YYYY-Www.log` par semaine ISO, purge auto des fichiers > 5 semaines à chaque appel. Tolérant : écriture en best-effort, `SODIUM_AUDIT_DEBUG=1` pour surfacer les erreurs sur stderr. Branché dans `cli.rs` (4 subcommands) et dans `api.rs::handle_request` via un dispatcher centralisé `describe_request` + `dispatch` (13 actions auditées uniformément, source=`api`). Test OK : `sodium new-branch feature/test-audit` dans un repo jetable → ligne `2026-05-17T12:11:18+02:00\tcli\t/tmp/sodium-audit-test\tnew-branch\tfeature/test-audit\tok` écrite dans `~/.config/sodium/audit-2026-W20.log`.
+<!-- /TT1506 -->
+<!-- TT1507 -->
+- [x] #TT1507 : Sortie JSON obligatoire pour toutes les subcommands CLI
+  - début: 2026-05-17 12:17 | fin: 2026-05-17 12:24 | Màj: 2026-05-17 10:26
+  - Statut : Terminé | temps: 3
+### Description
+**Décision** : la sortie des subcommands `sodium <action>` devient **JSON uniquement** — pas de flag opt-in, pas de mode texte alternatif. Toutes les invocations émettent une ligne JSON unique sur stdout, dans tous les cas (succès, échec git, usage incorrect, repo introuvable).
+
+Motivation : usages avancés prévus (hooks Git côté serveur, CI, scripts d'automatisation, autres agents qui pilotent Sodium). Un format unique simplifie le contrat d'API et évite la divergence text/json.
+
+**Format de sortie** (1 ligne, sur stdout) :
+- Succès : `{"ok": true, "action": "<action>", "message": "<msg human-friendly>", "data": {...}}` (`data` optionnel selon l'action — ex : `{"branches_cleaned": 2}` pour push)
+- Échec git : `{"ok": false, "action": "<action>", "error": "<message git>"}` (code retour 1)
+- Usage incorrect / repo introuvable : `{"ok": false, "action": "<action>", "error": "<message>"}` (code retour 2)
+
+**Spécifications** :
+- Réutiliser le format du `ApiResponse` existant dans `src/api.rs` (champs `ok`, `data`, `error`) pour cohérence entre CLI et API socket
+- Ajouter le champ `action` dans la struct partagée (CLI + API)
+- Supprimer **toute** écriture human-friendly sur stdout/stderr depuis `cli.rs`. Seule exception : `SODIUM_AUDIT_DEBUG=1` peut surfacer des erreurs d'écriture du fichier audit sur stderr.
+- Codes de retour conservés : 0 = ok, 1 = échec exécution, 2 = usage / repo introuvable
+- Documentation : README — la section « API headless » est étendue ou renommée pour couvrir aussi le mode CLI JSON ; même format de réponse des deux côtés
+- Skill `~/.claude/skills/sodium-git/SKILL.md` : Claude doit parser le JSON pour extraire `message` ou `error` à présenter à Pierre. Plus de texte libre à relayer tel quel.
+
+**Impact** : la sortie courante (`Branch 'feature/foo' created & active`) devient `{"ok":true,"action":"new-branch","message":"Branch 'feature/foo' created & active"}`. Tout consommateur actuel (s'il y en a) doit basculer sur le JSON. Pas de période de transition souhaitée — c'est le format définitif.
+### Résultat
+Struct `ApiResponse` étendue dans `src/api.rs` avec les champs `action: Option<&'static str>` et `message: Option<String>`, exposée publiquement. Constructeurs `ok_msg / ok_with / ok_data / err / with_action`. Les 13 arms du dispatch API migrés ; `handle_request` tagge l'action une fois en sortie de `dispatch`. CLI (`src/cli.rs`) entièrement refactorée : helpers `emit_ok` / `emit_err`, plus aucun `println!`/`eprintln!` human-friendly, JSON systématique sur stdout. Tests OK :
+- `sodium new-branch feature/json-test` → `{"ok":true,"action":"new-branch","message":"Branch 'feature/json-test' created & active"}`
+- `sodium new-branch` (sans arg) → `{"ok":false,"action":"new-branch","error":"usage: …"}` + exit 2
+- `sodium push --path /tmp` → `{"ok":false,"action":"push","error":"not a git repository: /tmp"}` + exit 2
+
+Skill `~/.claude/skills/sodium-git/SKILL.md` mise à jour : tableau du format JSON + consigne « parser et extraire `message`/`error` plutôt que coller le JSON brut ». README : section renommée « API headless et CLI JSON » avec exemples côte à côte.
+<!-- /TT1507 -->
 <!-- /TANTALE:TASKS -->
+
+<!-- TANTALE:INBOX -->
+Aucune demande en cours.
+<!-- /TANTALE:INBOX -->
+
 
 <!-- TANTALE:NOTES -->
 Aucune correspondance trouvée avec les tâches Tantale existantes (#TT). Le projet Sodium est un outil Git TUI indépendant qui ne correspond à aucun des projets suivis dans Tantale (CRM Resalice, Catalibris, Geo, Pulse, Echo, etc.). Si Sodium doit être suivi dans Tantale, il faudra créer un nouveau projet dédié et importer ces tâches. Points d'attention : (1) La Phase 1 pull manquant est aussi listée en Phase 3.2 — c'est la même tâche, à ne pas dupliquer. (2) Le commit sélectif (Phase 1.5) est marqué comme corrigé en Phase 3.1 — cohérent. (3) Les Phases 4-6 sont ambitieuses (multi-utilisateurs, cross-platform) et pourraient nécessiter un re-priorisation selon l'usage réel.

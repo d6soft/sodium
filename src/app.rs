@@ -74,12 +74,14 @@ pub enum ConfirmPurpose {
     FixGitconNestedGitignore(String),
     FixGitconSensitiveFile(String),
     FixGitconLargeFile(String),
+    FixGitconArchive(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum GitconItem {
     SensitiveFile(String),
     LargeFile { path: String, size: u64 },
+    Archive { path: String, size: u64 },
     BuildDir(String),
     NestedGitignore(String),
 }
@@ -89,6 +91,7 @@ impl GitconItem {
         match self {
             GitconItem::SensitiveFile(p) => format!("sensitive:{}", p),
             GitconItem::LargeFile { path, .. } => format!("large:{}", path),
+            GitconItem::Archive { path, .. } => format!("archive:{}", path),
             GitconItem::BuildDir(d) => format!("build:{}", d),
             GitconItem::NestedGitignore(n) => format!("nested:{}", n),
         }
@@ -313,6 +316,12 @@ impl App {
                 out.push(item);
             }
         }
+        for (p, size) in git_ops::detect_unignored_archives(&self.repo_path) {
+            let item = GitconItem::Archive { path: p, size };
+            if !self.gitcon_skipped.contains(&item.skip_key()) {
+                out.push(item);
+            }
+        }
         for d in git_ops::detect_suspect_unignored(&self.repo_path) {
             let item = GitconItem::BuildDir(d);
             if !self.gitcon_skipped.contains(&item.skip_key()) {
@@ -336,19 +345,23 @@ impl App {
         };
         let (prompt, purpose) = match first {
             GitconItem::SensitiveFile(p) => (
-                format!("Add to .gitignore (sensitive) '{}' ? [y/n]", p),
+                format!("Add to .gitignore (sensitive) '{}' ? [Y/n]", p),
                 ConfirmPurpose::FixGitconSensitiveFile(p),
             ),
             GitconItem::LargeFile { path, size } => (
-                format!("Add to .gitignore (large {}) '{}' ? [y/n]", human_size(size), path),
+                format!("Add to .gitignore (large {}) '{}' ? [Y/n]", human_size(size), path),
                 ConfirmPurpose::FixGitconLargeFile(path),
             ),
+            GitconItem::Archive { path, size } => (
+                format!("Add to .gitignore (archive {}) '{}' ? [Y/n]", human_size(size), path),
+                ConfirmPurpose::FixGitconArchive(path),
+            ),
             GitconItem::BuildDir(d) => (
-                format!("Add to .gitignore (build dir) '{}' ? [y/n]", d),
+                format!("Add to .gitignore (build dir) '{}' ? [Y/n]", d),
                 ConfirmPurpose::FixGitconBuildDir(d),
             ),
             GitconItem::NestedGitignore(n) => (
-                format!("Merge into root .gitignore + delete '{}' ? [y/n]", n),
+                format!("Merge into root .gitignore + delete '{}' ? [Y/n]", n),
                 ConfirmPurpose::FixGitconNestedGitignore(n),
             ),
         };
@@ -755,10 +768,12 @@ impl App {
                 ConfirmPurpose::FixGitconLargeFile(file) => {
                     if Self::is_yes(&buf) {
                         let n = git_ops::append_to_root_gitignore(&self.repo_path, &[file.clone()]);
+                        let untracked = git_ops::git_rm_cached_one(&self.repo_path, &file);
+                        let suffix = if untracked { " + untracked" } else { "" };
                         if n > 0 {
-                            self.notify(format!("[GITCON] Added '{}' to .gitignore", file), false);
+                            self.notify(format!("[GITCON] Added '{}' to .gitignore{}", file, suffix), false);
                         } else {
-                            self.notify(format!("[GITCON] '{}' already in .gitignore", file), false);
+                            self.notify(format!("[GITCON] '{}' already in .gitignore{}", file, suffix), false);
                         }
                     } else {
                         let key = format!("large:{}", file);
@@ -767,13 +782,32 @@ impl App {
                     }
                     self.refresh_gitcon_queue();
                 }
+                ConfirmPurpose::FixGitconArchive(file) => {
+                    if Self::is_yes(&buf) {
+                        let n = git_ops::append_to_root_gitignore(&self.repo_path, &[file.clone()]);
+                        let untracked = git_ops::git_rm_cached_one(&self.repo_path, &file);
+                        let suffix = if untracked { " + untracked" } else { "" };
+                        if n > 0 {
+                            self.notify(format!("[GITCON] Added '{}' to .gitignore{}", file, suffix), false);
+                        } else {
+                            self.notify(format!("[GITCON] '{}' already in .gitignore{}", file, suffix), false);
+                        }
+                    } else {
+                        let key = format!("archive:{}", file);
+                        self.gitcon_skipped.insert(key);
+                        self.notify(format!("[GITCON] Skipped '{}' for this session", file), false);
+                    }
+                    self.refresh_gitcon_queue();
+                }
                 ConfirmPurpose::FixGitconSensitiveFile(file) => {
                     if Self::is_yes(&buf) {
                         let n = git_ops::append_to_root_gitignore(&self.repo_path, &[file.clone()]);
+                        let untracked = git_ops::git_rm_cached_one(&self.repo_path, &file);
+                        let suffix = if untracked { " + untracked" } else { "" };
                         if n > 0 {
-                            self.notify(format!("[GITCON] Added '{}' to .gitignore", file), false);
+                            self.notify(format!("[GITCON] Added '{}' to .gitignore{}", file, suffix), false);
                         } else {
-                            self.notify(format!("[GITCON] '{}' already in .gitignore", file), false);
+                            self.notify(format!("[GITCON] '{}' already in .gitignore{}", file, suffix), false);
                         }
                     } else {
                         let key = GitconItem::SensitiveFile(file.clone()).skip_key();
@@ -1048,7 +1082,8 @@ impl App {
 
     fn is_yes(buf: &str) -> bool {
         let b = buf.trim();
-        b.eq_ignore_ascii_case("y")
+        b.is_empty()
+            || b.eq_ignore_ascii_case("y")
             || b.eq_ignore_ascii_case("yes")
             || b.eq_ignore_ascii_case("o")
             || b.eq_ignore_ascii_case("oui")
@@ -1280,87 +1315,15 @@ impl App {
     }
 
     fn do_merge(&mut self, branch: &str) {
-        let on_main = self.repo_info.current_branch == "main";
-        let mut did_stash = false;
-
-        // If not on main, stash + checkout main first
-        if !on_main {
-            // Stash any local changes to avoid checkout conflicts
-            if let Ok(stash_out) = Command::new("git")
-                .args(["stash", "push", "-m", "sodium-auto-merge"])
-                .current_dir(&self.repo_path)
-                .output()
-            {
-                let msg = String::from_utf8_lossy(&stash_out.stdout);
-                did_stash = !msg.contains("No local changes");
-            }
-
-            let checkout = Command::new("git")
-                .args(["checkout", "main"])
-                .current_dir(&self.repo_path)
-                .output();
-            match checkout {
-                Ok(o) if !o.status.success() => {
-                    let err = String::from_utf8_lossy(&o.stderr);
-                    self.notify(format!("[ERROR] checkout main: {}", err.trim()), true);
-                    // Restore stash before returning
-                    if did_stash {
-                        let _ = Command::new("git")
-                            .args(["stash", "pop"])
-                            .current_dir(&self.repo_path)
-                            .output();
-                    }
-                    return;
-                }
-                Err(e) => {
-                    self.notify(format!("[ERROR] {}", e), true);
-                    if did_stash {
-                        let _ = Command::new("git")
-                            .args(["stash", "pop"])
-                            .current_dir(&self.repo_path)
-                            .output();
-                    }
-                    return;
-                }
-                _ => {}
-            }
-        }
-
-        let output = Command::new("git")
-            .args(["merge", branch])
-            .current_dir(&self.repo_path)
-            .output();
-        match output {
-            Ok(o) if o.status.success() => {
+        match git_ops::git_merge_into_main(&self.repo_path, branch) {
+            Ok(msg) => {
                 self.done_actions.insert(ActionKind::Merge);
-                if did_stash {
-                    let _ = Command::new("git")
-                        .args(["stash", "pop"])
-                        .current_dir(&self.repo_path)
-                        .output();
-                }
-                self.notify(format!("[SIGINT] '{}' merged into main", branch), false);
-                self.refresh();
-            }
-            Ok(o) => {
-                let err = String::from_utf8_lossy(&o.stderr);
-                if did_stash {
-                    let _ = Command::new("git")
-                        .args(["stash", "pop"])
-                        .current_dir(&self.repo_path)
-                        .output();
-                }
-                self.notify(format!("[ERROR] {}", err.trim()), true);
+                self.notify(format!("[SIGINT] {}", msg), false);
                 self.refresh();
             }
             Err(e) => {
-                if did_stash {
-                    let _ = Command::new("git")
-                        .args(["stash", "pop"])
-                        .current_dir(&self.repo_path)
-                        .output();
-                }
                 self.notify(format!("[ERROR] {}", e), true);
+                self.refresh();
             }
         }
     }
@@ -1729,34 +1692,7 @@ impl App {
             .config
             .as_ref()
             .and_then(|c| c.github_url(project_name).map(String::from))?;
-
-        // Ensure the github remote exists
-        let check = Command::new("git")
-            .args(["remote", "get-url", "github"])
-            .current_dir(&self.repo_path)
-            .output();
-
-        let has_remote = check.map(|o| o.status.success()).unwrap_or(false);
-        if !has_remote {
-            let add = Command::new("git")
-                .args(["remote", "add", "github", &github_url])
-                .current_dir(&self.repo_path)
-                .output();
-            if !add.map(|o| o.status.success()).unwrap_or(false) {
-                return None;
-            }
-        }
-
-        // Force push to github (mirror — origin is source of truth)
-        let push = Command::new("git")
-            .args(["push", "--force", "github", branch])
-            .current_dir(&self.repo_path)
-            .output();
-
-        match push {
-            Ok(o) if o.status.success() => Some(" + GitHub".into()),
-            _ => None,
-        }
+        git_ops::mirror_to_github(&self.repo_path, branch, &github_url)
     }
 
 }
