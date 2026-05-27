@@ -172,7 +172,7 @@ fn dispatch(req: ApiRequest, default_path: &Option<PathBuf>) -> ApiResponse {
         }
         ApiRequest::Projects => {
             match config::load_config() {
-                Some(cfg) => {
+                Ok(cfg) => {
                     let root = cfg.dev_root_path();
                     let mut projects = Vec::new();
                     if let Ok(entries) = std::fs::read_dir(&root) {
@@ -191,7 +191,7 @@ fn dispatch(req: ApiRequest, default_path: &Option<PathBuf>) -> ApiResponse {
                     projects.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
                     ApiResponse::ok_data(serde_json::to_value(&projects).unwrap())
                 }
-                None => ApiResponse::err("No sodium config found"),
+                Err(e) => ApiResponse::err(e),
             }
         }
         ApiRequest::Fetch { path } => {

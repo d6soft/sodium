@@ -27,3 +27,6 @@ target/
 *.png
 *.jpg
 *.jpeg
+
+# --- Titan-managed (read-only, local only) ---
+ROADMAP.md

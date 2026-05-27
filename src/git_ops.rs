@@ -446,7 +446,7 @@ fn read_gitignore_patterns(path: &Path) -> HashSet<String> {
 }
 
 /// List nested .gitignore files (one level deep, excluding root).
-/// Returns relative paths like "joris/.gitignore".
+/// Returns relative paths like "subproject/.gitignore".
 pub fn find_nested_gitignores(path: &Path) -> Vec<String> {
     let mut out = Vec::new();
     if let Ok(entries) = std::fs::read_dir(path) {

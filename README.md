@@ -35,18 +35,18 @@ cargo build --release
 
 ## Configuration
 
-Au premier lancement, Sodium cree `~/.config/sodium/sodium.toml` :
+Sodium attend un fichier `~/.config/sodium/sodium.toml`. Tous les champs ci-dessous sont **obligatoires** — Sodium refuse de démarrer si le fichier est absent ou incomplet.
 
 ```toml
 dev_root = "~/dev"
-remote_host = "git-PM7"
+remote_host = "git.example.com"
 remote_path = "repos"
 pull_rebase = true
 activity_show = true
 
 # Miroir GitHub (optionnel, par projet)
-[projects.sodium]
-github = "git@github.com:d6soft/sodium.git"
+[projects.<nom-du-projet>]
+github = "git@github.com:<user>/<repo>.git"
 ```
 
 ## API headless et CLI JSON

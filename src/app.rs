@@ -165,7 +165,8 @@ pub struct App {
     pub subtitle_index: usize,
     // Multi-project support
     pub screen: Screen,
-    pub config: Option<SodiumConfig>,
+    pub config: SodiumConfig,
+    pub is_multi: bool,
     pub projects: Vec<ProjectSummary>,
     pub project_index: usize,
     // Commit review state
@@ -224,7 +225,8 @@ impl App {
             should_quit: false,
             subtitle_index,
             screen: Screen::ProjectList,
-            config: Some(config),
+            config,
+            is_multi: true,
             projects: Vec::new(),
             project_index: 0,
             commit_review: None,
@@ -244,8 +246,8 @@ impl App {
         app
     }
 
-    /// Create in single-project mode (backward compat, no config).
-    pub fn new(repo_path: PathBuf) -> Self {
+    /// Create in single-project mode (config still required for remote settings).
+    pub fn new(repo_path: PathBuf, config: SodiumConfig) -> Self {
         let repo_info = git::gather_repo_info(&repo_path).unwrap_or_default();
         let subtitle_index = rand::random::<usize>() % SUBTITLES.len();
         let mut app = Self {
@@ -265,7 +267,8 @@ impl App {
             should_quit: false,
             subtitle_index,
             screen: Screen::ProjectDetail,
-            config: None,
+            config,
+            is_multi: false,
             projects: Vec::new(),
             project_index: 0,
             commit_review: None,
@@ -962,10 +965,7 @@ impl App {
     // ── Multi-project navigation ───────────────────────────────────────
 
     pub fn discover_projects(&mut self) {
-        let config = match &self.config {
-            Some(c) => c.clone(),
-            None => return,
-        };
+        let config = self.config.clone();
         let root = config.dev_root_path();
         let mut projects = Vec::new();
 
@@ -1068,7 +1068,7 @@ impl App {
     }
 
     pub fn back_to_list(&mut self) {
-        if self.config.is_none() {
+        if !self.is_multi {
             return;
         }
         self.is_no_repo = false;
@@ -1120,7 +1120,7 @@ impl App {
     }
 
     pub fn is_multi_project(&self) -> bool {
-        self.config.is_some()
+        self.is_multi
     }
 
     pub fn server_repo_clone(&mut self) {
@@ -1157,10 +1157,8 @@ impl App {
             return;
         }
 
-        let (remote_host, remote_path) = match &self.config {
-            Some(cfg) => (cfg.remote_host.clone(), cfg.remote_path.clone()),
-            None => return,
-        };
+        let remote_host = self.config.remote_host.clone();
+        let remote_path = self.config.remote_path.clone();
 
         let url = format!("{}:{}/{}.git", remote_host, remote_path, name);
         let expanded_target = if target_dir.starts_with('~') {
@@ -1178,11 +1176,9 @@ impl App {
             Ok(o) if o.status.success() => {
                 self.notify(format!("[OK] Cloned {} into {}", name, dest), false);
                 // Refresh projects if target is within dev_root
-                if let Some(cfg) = &self.config {
-                    let dev_root = cfg.dev_root_path().to_string_lossy().to_string();
-                    if expanded_target.starts_with(&dev_root) {
-                        self.discover_projects();
-                    }
+                let dev_root = self.config.dev_root_path().to_string_lossy().to_string();
+                if expanded_target.starts_with(&dev_root) {
+                    self.discover_projects();
                 }
             }
             Ok(o) => {
@@ -1299,11 +1295,7 @@ impl App {
             return;
         }
 
-        let rebase = self
-            .config
-            .as_ref()
-            .map(|c| c.pull_rebase)
-            .unwrap_or(true);
+        let rebase = self.config.pull_rebase;
 
         match git_ops::git_pull(&self.repo_path, &branch, rebase) {
             Ok(msg) => {
@@ -1441,10 +1433,8 @@ impl App {
     }
 
     fn do_delete_bare_repo(&mut self, name: &str) {
-        let (remote_host, remote_path) = match &self.config {
-            Some(cfg) => (cfg.remote_host.clone(), cfg.remote_path.clone()),
-            None => return,
-        };
+        let remote_host = self.config.remote_host.clone();
+        let remote_path = self.config.remote_path.clone();
 
         let bare_path = format!("{}/{}.git", remote_path, name);
         let result = Command::new("ssh")
@@ -1473,10 +1463,8 @@ impl App {
             return;
         }
 
-        let (remote_host, remote_path) = match &self.config {
-            Some(cfg) => (cfg.remote_host.clone(), cfg.remote_path.clone()),
-            None => ("git-PM7".into(), "repos".into()),
-        };
+        let remote_host = self.config.remote_host.clone();
+        let remote_path = self.config.remote_path.clone();
 
         let bare_path = format!("{}/{}.git", remote_path, repo_name);
 
@@ -1548,11 +1536,7 @@ impl App {
         }
 
         // Add github remote if configured
-        if let Some(gh_url) = self
-            .config
-            .as_ref()
-            .and_then(|c| c.github_url(repo_name).map(String::from))
-        {
+        if let Some(gh_url) = self.config.github_url(repo_name).map(String::from) {
             let _ = Command::new("git")
                 .args(["remote", "add", "github", &gh_url])
                 .current_dir(&self.repo_path)
@@ -1688,10 +1672,7 @@ impl App {
     /// Returns a suffix string (e.g. " + GitHub") on success, or None.
     fn mirror_to_github(&self, branch: &str) -> Option<String> {
         let project_name = &self.repo_info.name;
-        let github_url = self
-            .config
-            .as_ref()
-            .and_then(|c| c.github_url(project_name).map(String::from))?;
+        let github_url = self.config.github_url(project_name).map(String::from)?;
         git_ops::mirror_to_github(&self.repo_path, branch, &github_url)
     }
 

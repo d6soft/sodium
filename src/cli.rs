@@ -12,16 +12,23 @@ use crate::{audit, config, git_ops};
 /// All subcommands emit a single JSON line on stdout, regardless of outcome.
 /// Exit codes: 0 = ok, 1 = action failed, 2 = usage or repo not found.
 pub fn try_dispatch(args: &[String]) -> bool {
-    let cmd = match args.get(1).map(|s| s.as_str()) {
-        Some(c) => c,
-        None => return false,
+    let action: &'static str = match args.get(1).map(|s| s.as_str()) {
+        Some("new-branch") => "new-branch",
+        Some("commit") => "commit",
+        Some("merge-main") => "merge-main",
+        Some("push") => "push",
+        _ => return false,
     };
-    match cmd {
+    if let Err(e) = config::load_config() {
+        emit_err(action, &e);
+        exit(2);
+    }
+    match action {
         "new-branch" => run_new_branch(&args[2..]),
         "commit" => run_commit(&args[2..]),
         "merge-main" => run_merge_main(&args[2..]),
         "push" => run_push(&args[2..]),
-        _ => return false,
+        _ => unreachable!(),
     }
     true
 }
@@ -133,10 +140,8 @@ fn run_push(args: &[String]) {
 }
 
 fn mirror_suffix(repo: &Path) -> String {
-    let cfg = match config::load_config() {
-        Some(c) => c,
-        None => return String::new(),
-    };
+    // Config presence is guaranteed by try_dispatch.
+    let cfg = config::load_config().expect("config validated at dispatch");
     let project_name = match repo.file_name().and_then(|n| n.to_str()) {
         Some(n) => n,
         None => return String::new(),

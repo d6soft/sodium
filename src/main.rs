@@ -78,24 +78,18 @@ fn main() -> Result<()> {
 fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
     let cwd = std::env::current_dir()?;
 
-    // Try to load config for multi-project mode
-    let mut app = match config::load_config() {
-        Some(cfg) => {
-            let dev_root = cfg.dev_root_path();
-            if dev_root.is_dir() {
-                App::new_multi(cfg)
-            } else {
-                // Config exists but dev_root doesn't → fallback to single-project
-                App::new(cwd)
-            }
-        }
-        None => App::new(cwd),
+    let cfg = config::load_config().map_err(|e| color_eyre::eyre::eyre!(e))?;
+    let dev_root = cfg.dev_root_path();
+    let mut app = if dev_root.is_dir() {
+        App::new_multi(cfg)
+    } else {
+        App::new(cwd.clone(), cfg)
     };
 
     // If multi-project but no projects found, fallback to single-project on cwd
     if app.screen == Screen::ProjectList && app.projects.is_empty() {
-        let cwd = std::env::current_dir()?;
-        app = App::new(cwd);
+        let cfg = config::load_config().map_err(|e| color_eyre::eyre::eyre!(e))?;
+        app = App::new(cwd, cfg);
     }
 
     let mut last_tick = Instant::now();

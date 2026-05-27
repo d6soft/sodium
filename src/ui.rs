@@ -807,11 +807,7 @@ fn render_body(f: &mut Frame, app: &App, area: Rect) {
     render_actions(f, app, cols[0]);
 
     // Right column: BRANCHS + FILES + optional ACTIVITY
-    let show_activity = app
-        .config
-        .as_ref()
-        .map(|c| c.activity_show)
-        .unwrap_or(true);
+    let show_activity = app.config.activity_show;
 
     // Calculate FILES card height: base 5 + up to 10 modified file names
     let mod_count = app.repo_info.files.modified_names.len().min(10);

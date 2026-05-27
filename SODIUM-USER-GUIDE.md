@@ -80,47 +80,44 @@ Au premier lancement, Sodium crée automatiquement le fichier de configuration (
 
 ## Configuration
 
-Au premier lancement, Sodium crée automatiquement `~/.config/sodium/sodium.toml` :
+Sodium attend un fichier `~/.config/sodium/sodium.toml`. Tous les champs scalaires ci-dessous sont **obligatoires** : Sodium refuse de démarrer si le fichier est absent ou si un champ manque.
 
 ```toml
 dev_root = "~/dev"
-remote_host = "git-PM7"
+remote_host = "git.example.com"
 remote_path = "repos"
 pull_rebase = true
 activity_show = true
-exclude = ["fonts", "Apple_keys"]
+exclude = ["dossier-a-ignorer"]
 ```
 
-| Clé | Description | Defaut |
-|-----|-------------|--------|
-| `dev_root` | Dossier contenant vos projets (expansion `~` supportée) | `~/dev` |
-| `remote_host` | Serveur SSH pour les bare repos | `git-PM7` |
-| `remote_path` | Chemin sur le serveur vers les repos bare | `repos` |
-| `pull_rebase` | `true` = pull --rebase, `false` = pull merge | `true` |
-| `activity_show` | Afficher le panneau ACTIVITY (heatmap) | `true` |
-| `exclude` | Liste de dossiers a exclure de la liste des projets | `[]` |
+| Clé | Description | Obligatoire |
+|-----|-------------|-------------|
+| `dev_root` | Dossier contenant vos projets (expansion `~` supportée) | oui |
+| `remote_host` | Serveur SSH pour les bare repos | oui |
+| `remote_path` | Chemin sur le serveur vers les repos bare | oui |
+| `pull_rebase` | `true` = pull --rebase, `false` = pull merge | oui |
+| `activity_show` | Afficher le panneau ACTIVITY (heatmap) | oui |
+| `exclude` | Liste de dossiers à exclure de la liste des projets | non (vide par défaut) |
 
 **Mode multi-projet** : si `dev_root` existe et contient des dossiers, Sodium affiche la liste de tous vos projets au lancement.
 
-**Mode mono-projet** : si pas de config ou `dev_root` invalide, Sodium s'ouvre sur le dossier courant.
+**Mode mono-projet** : si `dev_root` n'existe pas, Sodium s'ouvre sur le dossier courant (la config reste requise).
 
 ### Miroir GitHub (optionnel)
 
-Pour activer le push miroir vers GitHub sur certains projets, ajoutez une table `[projects.<nom>]` avec la cle `github` :
+Pour activer le push miroir vers GitHub sur certains projets, ajoutez une table `[projects.<nom>]` avec la clé `github` :
 
 ```toml
 dev_root = "~/dev"
-remote_host = "git-PM7"
+remote_host = "git.example.com"
 remote_path = "repos"
 pull_rebase = true
 activity_show = true
-exclude = ["fonts", "Apple_keys"]
+exclude = ["dossier-a-ignorer"]
 
-[projects.sodium]
-github = "git@github.com:user/sodium.git"
-
-[projects.mon-api]
-github = "git@github.com:user/mon-api.git"
+[projects.<nom-du-projet>]
+github = "git@github.com:<user>/<repo>.git"
 ```
 
 Le nom de la table (`sodium`, `mon-api`) doit correspondre exactement au nom du dossier dans `dev_root`.
