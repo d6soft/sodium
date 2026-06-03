@@ -4,8 +4,15 @@ use std::fs;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MirrorConfig {
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectConfig {
     pub github: Option<String>,
+    #[serde(default)]
+    pub mirrors: Option<HashMap<String, MirrorConfig>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,12 +33,25 @@ impl SodiumConfig {
         expand_tilde(&self.dev_root)
     }
 
-    pub fn github_url(&self, project_name: &str) -> Option<&str> {
-        self.projects
-            .as_ref()?
-            .get(project_name)?
-            .github
-            .as_deref()
+    /// Returns (name, url) pairs of all configured mirrors for a project.
+    /// Merges the legacy `github = "..."` key as a mirror named "github" when
+    /// `mirrors.github` is absent. Ordered by name for deterministic push order.
+    pub fn mirrors(&self, project_name: &str) -> Vec<(String, String)> {
+        let Some(proj) = self.projects.as_ref().and_then(|p| p.get(project_name)) else {
+            return Vec::new();
+        };
+        let mut out: HashMap<String, String> = HashMap::new();
+        if let Some(map) = &proj.mirrors {
+            for (name, m) in map {
+                out.insert(name.clone(), m.url.clone());
+            }
+        }
+        if let Some(legacy) = &proj.github {
+            out.entry("github".into()).or_insert_with(|| legacy.clone());
+        }
+        let mut list: Vec<(String, String)> = out.into_iter().collect();
+        list.sort_by(|a, b| a.0.cmp(&b.0));
+        list
     }
 }
 

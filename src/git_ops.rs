@@ -47,33 +47,36 @@ pub fn git_pull(path: &Path, branch: &str, rebase: bool) -> Result<String, Strin
     }
 }
 
-/// Push `branch` to the optional `github` remote (force-push, since origin is
-/// source of truth). Adds the `github` remote on first call if missing.
-/// Returns Some(" + GitHub") on success to suffix push messages, None otherwise.
-pub fn mirror_to_github(path: &Path, branch: &str, github_url: &str) -> Option<String> {
+/// Force-push `branch` to the named mirror remote. Origin is the source of
+/// truth, mirrors are aligned via --force. Adds the remote on first call if
+/// missing. Returns Ok(()) on success, Err(stderr) on failure.
+pub fn mirror_push(path: &Path, branch: &str, remote_name: &str, url: &str) -> Result<(), String> {
     let check = Command::new("git")
-        .args(["remote", "get-url", "github"])
+        .args(["remote", "get-url", remote_name])
         .current_dir(path)
         .output();
-    let has_remote = check.map(|o| o.status.success()).unwrap_or(false);
+    let has_remote = check.as_ref().map(|o| o.status.success()).unwrap_or(false);
     if !has_remote {
         let add = Command::new("git")
-            .args(["remote", "add", "github", github_url])
+            .args(["remote", "add", remote_name, url])
             .current_dir(path)
-            .output();
-        if !add.map(|o| o.status.success()).unwrap_or(false) {
-            return None;
+            .output()
+            .map_err(|e| format!("remote add: {}", e))?;
+        if !add.status.success() {
+            return Err(String::from_utf8_lossy(&add.stderr).trim().to_string());
         }
     }
 
     let push = Command::new("git")
-        .args(["push", "--force", "github", branch])
+        .args(["push", "--force", remote_name, branch])
         .current_dir(path)
-        .output();
+        .output()
+        .map_err(|e| format!("push: {}", e))?;
 
-    match push {
-        Ok(o) if o.status.success() => Some(" + GitHub".into()),
-        _ => None,
+    if push.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&push.stderr).trim().to_string())
     }
 }
 

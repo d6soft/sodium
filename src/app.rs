@@ -1324,7 +1324,7 @@ impl App {
         match git_ops::git_push_main(&self.repo_path) {
             Ok((msg, cleaned)) => {
                 self.done_actions.insert(ActionKind::Push);
-                let gh_suffix = self.mirror_to_github("main").unwrap_or_default();
+                let gh_suffix = self.mirror_to_all("main").unwrap_or_default();
                 if cleaned > 0 {
                     self.notify(
                         format!("[SIGINT] Push complete — {} merged branch(es) cleaned{}", cleaned, gh_suffix),
@@ -1344,7 +1344,7 @@ impl App {
         match git_ops::git_backup(&self.repo_path, &branch) {
             Ok(msg) => {
                 self.done_actions.insert(ActionKind::Backup);
-                let gh_suffix = self.mirror_to_github(&branch).unwrap_or_default();
+                let gh_suffix = self.mirror_to_all(&branch).unwrap_or_default();
                 self.notify(format!("[SIGINT] {}{}", msg, gh_suffix), false);
                 self.refresh();
             }
@@ -1535,10 +1535,10 @@ impl App {
             return;
         }
 
-        // Add github remote if configured
-        if let Some(gh_url) = self.config.github_url(repo_name).map(String::from) {
+        // Add mirror remotes if configured
+        for (name, url) in self.config.mirrors(repo_name) {
             let _ = Command::new("git")
-                .args(["remote", "add", "github", &gh_url])
+                .args(["remote", "add", &name, &url])
                 .current_dir(&self.repo_path)
                 .output();
         }
@@ -1668,12 +1668,25 @@ impl App {
         gi
     }
 
-    /// Mirror push a branch to the `github` remote if configured.
-    /// Returns a suffix string (e.g. " + GitHub") on success, or None.
-    fn mirror_to_github(&self, branch: &str) -> Option<String> {
-        let project_name = &self.repo_info.name;
-        let github_url = self.config.github_url(project_name).map(String::from)?;
-        git_ops::mirror_to_github(&self.repo_path, branch, &github_url)
+    /// Push a branch to every configured mirror remote. Best-effort: failures
+    /// are silently skipped. Returns " + <name>, <name>..." suffix listing
+    /// successful pushes, or None if no mirror pushed.
+    fn mirror_to_all(&self, branch: &str) -> Option<String> {
+        let mirrors = self.config.mirrors(&self.repo_info.name);
+        if mirrors.is_empty() {
+            return None;
+        }
+        let mut pushed = Vec::new();
+        for (name, url) in &mirrors {
+            if git_ops::mirror_push(&self.repo_path, branch, name, url).is_ok() {
+                pushed.push(name.clone());
+            }
+        }
+        if pushed.is_empty() {
+            None
+        } else {
+            Some(format!(" + {}", pushed.join(", ")))
+        }
     }
 
 }
