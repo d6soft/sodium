@@ -1597,7 +1597,7 @@ impl App {
         gi.push_str("\n# ── Sensitive dotfiles ──\n");
         gi.push_str(".env\n.env.*\n.secret\n.secrets/\n");
         gi.push_str("\n# ── Logs / Temp ──\n");
-        gi.push_str("*.log\n*.tmp\n*.bak\n*.pid\n");
+        gi.push_str("*.log\n*.log.*\n*.tmp\n*.bak\n*.pid\n");
 
         // Node / Svelte
         if p.join("package.json").exists() {

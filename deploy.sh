@@ -11,6 +11,7 @@ RESET='\033[0m'
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 INSTALL_DIR="/opt/sodium"
 BIN_NAME="sodium"
+TARGET_DIR="${CARGO_TARGET_DIR:-${PROJECT_DIR}/target}"
 
 echo ""
 echo -e "  ${CYAN}${BOLD}⚛ SODIUM — deploy${RESET}"
@@ -54,8 +55,8 @@ echo -n "$NEW_DISPLAY" > "$VERSION_FILE"
 echo -e "  ${DIM}Version: ${NEW_DISPLAY}${RESET}"
 
 # ── Clean ───────────────────────────────────────────────────────────────
-echo -e "  ${DIM}Cleaning target/...${RESET}"
-rm -rf "${PROJECT_DIR}/target"
+echo -e "  ${DIM}Cleaning (cargo clean)...${RESET}"
+cargo clean -p sodium --manifest-path "${PROJECT_DIR}/Cargo.toml"
 
 # ── Build release ───────────────────────────────────────────────────────
 echo -e "  ${DIM}Building release...${RESET}"
@@ -64,7 +65,7 @@ cargo build --release --manifest-path "${PROJECT_DIR}/Cargo.toml"
 # ── Install ─────────────────────────────────────────────────────────────
 echo -e "  ${DIM}Installing to ${INSTALL_DIR}...${RESET}"
 sudo mkdir -p "${INSTALL_DIR}"
-sudo cp "${PROJECT_DIR}/target/release/${BIN_NAME}" "${INSTALL_DIR}/${BIN_NAME}"
+sudo cp "${TARGET_DIR}/release/${BIN_NAME}" "${INSTALL_DIR}/${BIN_NAME}"
 sudo chmod +x "${INSTALL_DIR}/${BIN_NAME}"
 
 # ── Symlink in PATH ────────────────────────────────────────────────────
