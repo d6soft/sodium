@@ -70,10 +70,12 @@ sodium merge-main <feature>
 sodium push
 sodium remotes
 sodium add-github [--owner <org>] [--name <repo>] [--public|--private] [--yes]
+sodium init-remote [--name <repo>] [--yes] [--force]
 ```
 
 - `sodium remotes` : vue croisée des remotes Git physiques (`git remote -v`) et des miroirs déclarés dans `sodium.toml`. Champ `source` ∈ `git`, `sodium-config`, `both` ; champ `mismatch` si les URLs divergent.
 - `sodium add-github` : crée le repo côté GitHub via `gh repo create` (CLI `gh` requise et authentifiée), ajoute le remote local `github`, et propose d'ajouter la section `[projects.<repo>.mirrors.github]` à `sodium.toml`. Owner par défaut `d6soft`, nom du repo déduit du dossier courant. Prompts interactifs sur stderr (visibilité, confirmations) ; le JSON final reste sur stdout. Mode non-interactif : `--public|--private --yes`.
+- `sodium init-remote` : crée le bare repo sur `remote_host:remote_path/<repo>.git` (par SSH, `git init --bare`) puis ajoute le remote local `origin`. Nom du repo déduit du dossier courant ou forcé via `--name`. Refuse si `origin` existe déjà localement. Si le bare existe déjà côté serveur : prompt interactif (réutiliser / écraser / annuler), ou `--force` en mode `--yes` pour écraser sans demander.
 
 **Sortie : JSON systématique sur stdout, une ligne par invocation.** Aucune écriture human-friendly. Codes de retour : `0` succès, `1` échec d'exécution, `2` usage incorrect ou repo introuvable.
 

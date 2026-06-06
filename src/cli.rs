@@ -20,6 +20,7 @@ pub fn try_dispatch(args: &[String]) -> bool {
         Some("push") => "push",
         Some("remotes") => "remotes",
         Some("add-github") => "add-github",
+        Some("init-remote") => "init-remote",
         _ => return false,
     };
     if let Err(e) = config::load_config() {
@@ -33,6 +34,7 @@ pub fn try_dispatch(args: &[String]) -> bool {
         "push" => run_push(&args[2..]),
         "remotes" => run_remotes(&args[2..]),
         "add-github" => run_add_github(&args[2..]),
+        "init-remote" => run_init_remote(&args[2..]),
         _ => unreachable!(),
     }
     true
@@ -459,6 +461,195 @@ fn run_add_github(args: &[String]) {
         format!("GitHub repo {}/{} created and bound", owner, repo_name),
         Some(data),
     );
+}
+
+// ─── init-remote (création bare sur git-ST1) ──────────────────────────────
+
+fn run_init_remote(args: &[String]) {
+    let action = "init-remote";
+    let mut path: Option<PathBuf> = None;
+    let mut repo_name_override: Option<String> = None;
+    let mut yes = false;
+    let mut force = false;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--path" => {
+                path = args.get(i + 1).map(PathBuf::from);
+                i += 2;
+            }
+            "--name" => {
+                repo_name_override = args.get(i + 1).cloned();
+                i += 2;
+            }
+            "--yes" | "-y" => {
+                yes = true;
+                i += 1;
+            }
+            "--force" => {
+                force = true;
+                i += 1;
+            }
+            _ => i += 1,
+        }
+    }
+
+    let repo = resolve_repo(path, action);
+    let detected = repo
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(|s| s.to_string())
+        .unwrap_or_default();
+    let repo_name = repo_name_override.unwrap_or(detected);
+    if repo_name.is_empty() {
+        emit_err(action, "unable to detect repo name");
+        exit(2);
+    }
+
+    let cfg = config::load_config().expect("config validated at dispatch");
+    let remote_host = cfg.remote_host.clone();
+    let remote_path = cfg.remote_path.clone();
+    let bare_path = format!("{}/{}.git", remote_path, repo_name);
+    let remote_url = format!("{}:{}/{}.git", remote_host, remote_path, repo_name);
+
+    // Refuse if origin already exists locally
+    let existing_remotes = read_git_remotes(&repo);
+    if let Some((_, url)) = existing_remotes.iter().find(|(n, _)| n == "origin") {
+        emit_err(
+            action,
+            &format!("origin remote already exists locally ({})", url),
+        );
+        exit(1);
+    }
+
+    // Check if bare exists server-side
+    let check = Command::new("ssh")
+        .args([&remote_host, &format!("test -d {}", bare_path)])
+        .status();
+    let bare_exists = matches!(check, Ok(s) if s.success());
+
+    let mut reused = false;
+    let mut overwrote = false;
+
+    if bare_exists {
+        let choice = if yes {
+            if force {
+                "overwrite".to_string()
+            } else {
+                emit_err(
+                    action,
+                    &format!(
+                        "bare repo already exists at {}:{} (use --force to overwrite, or run interactively to reuse)",
+                        remote_host, bare_path
+                    ),
+                );
+                exit(1);
+            }
+        } else {
+            eprintln!(
+                "Bare repo {}:{} already exists.",
+                remote_host, bare_path
+            );
+            match prompt_choice(
+                "Action?",
+                &["reuse (just bind origin)", "overwrite (rm + init)", "cancel"],
+            ) {
+                Some(s) => s,
+                None => {
+                    emit_err(action, "no choice");
+                    exit(2);
+                }
+            }
+        };
+        if choice.starts_with("cancel") {
+            emit_err(action, "aborted by user");
+            exit(1);
+        }
+        if choice.starts_with("overwrite") {
+            let del = Command::new("ssh")
+                .args([&remote_host, &format!("rm -rf {}", bare_path)])
+                .status();
+            if !matches!(del, Ok(s) if s.success()) {
+                emit_err(action, "failed to delete existing bare repo");
+                exit(1);
+            }
+            let init = Command::new("ssh")
+                .args([&remote_host, &format!("git init --bare {}", bare_path)])
+                .output();
+            match init {
+                Ok(o) if o.status.success() => overwrote = true,
+                Ok(o) => {
+                    emit_err(action, &format!("git init --bare: {}", String::from_utf8_lossy(&o.stderr).trim()));
+                    exit(1);
+                }
+                Err(e) => {
+                    emit_err(action, &format!("ssh init: {}", e));
+                    exit(1);
+                }
+            }
+        } else {
+            reused = true;
+        }
+    } else {
+        eprintln!(
+            "About to create bare repo on {}:{} and bind remote `origin`.",
+            remote_host, bare_path
+        );
+        if !yes && !prompt_yes_no("Proceed?", true) {
+            emit_err(action, "aborted by user");
+            exit(1);
+        }
+        let init = Command::new("ssh")
+            .args([&remote_host, &format!("git init --bare {}", bare_path)])
+            .output();
+        match init {
+            Ok(o) if o.status.success() => {}
+            Ok(o) => {
+                emit_err(action, &format!("git init --bare: {}", String::from_utf8_lossy(&o.stderr).trim()));
+                exit(1);
+            }
+            Err(e) => {
+                emit_err(action, &format!("ssh init: {}", e));
+                exit(1);
+            }
+        }
+    }
+
+    // Add local origin
+    let add = Command::new("git")
+        .args(["remote", "add", "origin", &remote_url])
+        .current_dir(&repo)
+        .output();
+    match add {
+        Ok(o) if o.status.success() => {}
+        Ok(o) => {
+            emit_err(action, &format!("git remote add: {}", String::from_utf8_lossy(&o.stderr).trim()));
+            exit(1);
+        }
+        Err(e) => {
+            emit_err(action, &format!("git remote add: {}", e));
+            exit(1);
+        }
+    }
+
+    let data = json!({
+        "repo": repo_name,
+        "remote_host": remote_host,
+        "remote_path": remote_path,
+        "bare_path": bare_path,
+        "remote": {"name": "origin", "url": remote_url},
+        "reused": reused,
+        "overwritten": overwrote,
+    });
+    let summary = if reused {
+        format!("origin bound to existing bare {}:{}", remote_host, bare_path)
+    } else if overwrote {
+        format!("bare repo overwritten on {}:{} and origin bound", remote_host, bare_path)
+    } else {
+        format!("bare repo created on {}:{} and origin bound", remote_host, bare_path)
+    };
+    audit::log("cli", &repo, action, &repo_name, Ok(&summary));
+    emit_ok(action, summary, Some(data));
 }
 
 fn prompt_yes_no(question: &str, default_yes: bool) -> bool {
