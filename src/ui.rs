@@ -457,11 +457,11 @@ fn render_server_card(f: &mut Frame, app: &App, area: Rect) {
     let mut repo_spans: Vec<Span> = vec![Span::raw("  ")];
     let max_width = inner.width.saturating_sub(4) as usize;
     let mut used_width = 0;
-    for (i, (name, size)) in info.repos.iter().enumerate() {
+    for (i, r) in info.repos.iter().enumerate() {
         let entry = if i == 0 {
-            format!("{name} {size}")
+            format!("{} {}", r.name, r.size)
         } else {
-            format!("  {name} {size}")
+            format!("  {} {}", r.name, r.size)
         };
         if used_width + entry.len() > max_width {
             repo_spans.push(Span::styled(" …", Style::default().fg(theme::FG_DIM)));
@@ -472,11 +472,11 @@ fn render_server_card(f: &mut Frame, app: &App, area: Rect) {
             repo_spans.push(Span::styled("  ", Style::default().fg(theme::FG_DIM)));
         }
         repo_spans.push(Span::styled(
-            name.clone(),
+            r.name.clone(),
             Style::default().fg(theme::FG_BRIGHT),
         ));
         repo_spans.push(Span::styled(
-            format!(" {size}"),
+            format!(" {}", r.size),
             Style::default().fg(theme::FG_DIM),
         ));
     }

@@ -574,7 +574,7 @@ fn run_init_remote(args: &[String]) {
                 exit(1);
             }
             let init = Command::new("ssh")
-                .args([&remote_host, &format!("git init --bare {}", bare_path)])
+                .args([&remote_host, &format!("git init --bare --initial-branch=main {}", bare_path)])
                 .output();
             match init {
                 Ok(o) if o.status.success() => overwrote = true,
@@ -600,7 +600,7 @@ fn run_init_remote(args: &[String]) {
             exit(1);
         }
         let init = Command::new("ssh")
-            .args([&remote_host, &format!("git init --bare {}", bare_path)])
+            .args([&remote_host, &format!("git init --bare --initial-branch=main {}", bare_path)])
             .output();
         match init {
             Ok(o) if o.status.success() => {}
@@ -610,6 +610,55 @@ fn run_init_remote(args: &[String]) {
             }
             Err(e) => {
                 emit_err(action, &format!("ssh init: {}", e));
+                exit(1);
+            }
+        }
+    }
+
+    // Ensure local branch is `main` before binding origin. Sodium impose `main`
+    // partout : on renomme la branche courante si possible, on refuse si `main`
+    // existe déjà mais que l'utilisateur est ailleurs.
+    let current_branch = Command::new("git")
+        .args(["symbolic-ref", "--short", "HEAD"])
+        .current_dir(&repo)
+        .output()
+        .ok()
+        .and_then(|o| if o.status.success() {
+            Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+        } else {
+            None
+        })
+        .unwrap_or_default();
+
+    if current_branch != "main" {
+        let main_exists = Command::new("git")
+            .args(["show-ref", "--verify", "--quiet", "refs/heads/main"])
+            .current_dir(&repo)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if main_exists {
+            emit_err(
+                action,
+                &format!(
+                    "local branch `main` already exists but current branch is `{}` — switch to `main` before running init-remote",
+                    if current_branch.is_empty() { "<unborn>" } else { &current_branch }
+                ),
+            );
+            exit(1);
+        }
+        let rename = Command::new("git")
+            .args(["branch", "-M", "main"])
+            .current_dir(&repo)
+            .output();
+        match rename {
+            Ok(o) if o.status.success() => {}
+            Ok(o) => {
+                emit_err(action, &format!("git branch -M main: {}", String::from_utf8_lossy(&o.stderr).trim()));
+                exit(1);
+            }
+            Err(e) => {
+                emit_err(action, &format!("git branch -M main: {}", e));
                 exit(1);
             }
         }

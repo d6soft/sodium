@@ -507,19 +507,43 @@ fn calc_gitcon(files: &FileStatus, ahead: usize, behind: usize) -> GitconLevel {
 // ── Server info (remote disk + repo sizes) ────────────────────────────────
 
 #[derive(Debug, Clone, Serialize)]
+pub struct ServerRepo {
+    pub name: String,
+    pub size: String,
+    pub last_commit: String, // YYYY-MM-DD, committerdate du tip de HEAD
+    pub last_push: String,   // YYYY-MM-DD, mtime du ref serveur (= push effectif)
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct ServerInfo {
     pub host: String,
     pub disk_total: String,
     pub disk_used: String,
     pub disk_available: String,
     pub disk_use_percent: u8,
-    pub repos: Vec<(String, String)>, // (name, size) sorted by size desc
+    pub repos: Vec<ServerRepo>, // sorted by size desc
     pub error: Option<String>,
 }
 
 pub fn gather_server_info(host: &str, path: &str) -> ServerInfo {
+    // Pour chaque bare repo : size, name, last_commit (committerdate du tip), last_push
+    // (mtime du fichier ref serveur, fallback packed-refs).
+    // Compatible BusyBox/Alpine (pas de find -printf). commit = committerdate du tip
+    // (toutes branches confondues, on prend la plus récente). push = mtime max des
+    // fichiers de refs/heads/, fallback packed-refs.
     let cmd = format!(
-        "df -h / | tail -1; echo '---'; du -sh ~/{path}/*.git 2>/dev/null | sort -rh"
+        "df -h / | tail -1; echo '---'; \
+         for repo in ~/{path}/*.git; do \
+           [ -d \"$repo\" ] || continue; \
+           name=$(basename \"$repo\" .git); \
+           size=$(du -sh \"$repo\" 2>/dev/null | cut -f1); \
+           commit=$(git --git-dir=\"$repo\" for-each-ref --sort=-committerdate --format='%(committerdate:short)' --count=1 refs/heads 2>/dev/null); \
+           push=$(stat -c '%y' \"$repo/refs/heads/\"* 2>/dev/null | sort -r | head -1 | cut -d' ' -f1); \
+           if [ -z \"$push\" ] && [ -f \"$repo/packed-refs\" ]; then \
+             push=$(stat -c '%y' \"$repo/packed-refs\" 2>/dev/null | cut -d' ' -f1); \
+           fi; \
+           printf '%s\\t%s\\t%s\\t%s\\n' \"$size\" \"$name\" \"$commit\" \"$push\"; \
+         done | sort -k1,1 -rh"
     );
     let output = Command::new("ssh")
         .args(["-o", "ConnectTimeout=3", host, &cmd])
@@ -570,20 +594,19 @@ pub fn gather_server_info(host: &str, path: &str) -> ServerInfo {
         (String::new(), String::new(), String::new(), 0)
     };
 
-    // Parse du lines: size\tpath
-    let repos: Vec<(String, String)> = du_part
+    // Parse lines: size\tname\tlast_commit\tlast_push
+    let repos: Vec<ServerRepo> = du_part
         .lines()
         .filter_map(|line| {
             let mut cols = line.split('\t');
             let size = cols.next()?.trim().to_string();
-            let repo_path = cols.next()?.trim();
-            let name = repo_path
-                .rsplit('/')
-                .next()?
-                .strip_suffix(".git")
-                .unwrap_or(repo_path.rsplit('/').next()?)
-                .to_string();
-            Some((name, size))
+            let name = cols.next()?.trim().to_string();
+            let last_commit = cols.next().unwrap_or("").trim().to_string();
+            let last_push = cols.next().unwrap_or("").trim().to_string();
+            if name.is_empty() {
+                return None;
+            }
+            Some(ServerRepo { name, size, last_commit, last_push })
         })
         .collect();
 

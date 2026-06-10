@@ -1100,7 +1100,11 @@ impl App {
     pub fn open_server_repos(&mut self) {
         let options: Vec<String> = match &self.server_info {
             Some(info) if info.error.is_none() => {
-                info.repos.iter().map(|(name, size)| format!("{}  ({})", name, size)).collect()
+                info.repos.iter().map(|r| {
+                    let commit = if r.last_commit.is_empty() { "—".into() } else { r.last_commit.clone() };
+                    let push = if r.last_push.is_empty() { "—".into() } else { r.last_push.clone() };
+                    format!("{:<24} ({:>6})   last commit: {}   last push: {}", r.name, r.size, commit, push)
+                }).collect()
             }
             _ => {
                 self.notify("[ERROR] Server info not available", true);
@@ -1126,7 +1130,7 @@ impl App {
     pub fn server_repo_clone(&mut self) {
         if let InputMode::Select { purpose: SelectPurpose::ServerRepos, options, index, .. } = &self.input_mode {
             if let Some(selected) = options.get(*index) {
-                let name = selected.split("  (").next().unwrap_or(selected).to_string();
+                let name = selected.split("  (").next().unwrap_or(selected).trim().to_string();
                 self.input_mode = InputMode::TextInput {
                     prompt: format!("Clone target directory for {}", name),
                     purpose: InputPurpose::CloneTarget(name),
@@ -1140,7 +1144,7 @@ impl App {
     pub fn server_repo_delete(&mut self) {
         if let InputMode::Select { purpose: SelectPurpose::ServerRepos, options, index, .. } = &self.input_mode {
             if let Some(selected) = options.get(*index) {
-                let name = selected.split("  (").next().unwrap_or(selected).to_string();
+                let name = selected.split("  (").next().unwrap_or(selected).trim().to_string();
                 self.input_mode = InputMode::Confirm {
                     prompt: format!("Type CONFIRM to delete {}.git", name),
                     purpose: ConfirmPurpose::DeleteBareRepo(name),
