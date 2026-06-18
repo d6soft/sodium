@@ -13,6 +13,12 @@ use crate::{audit, config, git_ops};
 /// All subcommands emit a single JSON line on stdout, regardless of outcome.
 /// Exit codes: 0 = ok, 1 = action failed, 2 = usage or repo not found.
 pub fn try_dispatch(args: &[String]) -> bool {
+    // deploy uses .sodium-deploy.toml in the repo, not the global sodium.toml.
+    // Intercept before the global config check below.
+    if args.get(1).map(|s| s.as_str()) == Some("deploy") {
+        return crate::deploy::dispatch(&args[2..]);
+    }
+
     let action: &'static str = match args.get(1).map(|s| s.as_str()) {
         Some("new-branch") => "new-branch",
         Some("commit") => "commit",
@@ -180,7 +186,7 @@ fn mirror_all(repo: &Path, branch: &str) -> (String, Vec<String>, Vec<String>) {
     (suffix, pushed, failed)
 }
 
-fn parse_path_flag(args: &[String]) -> (Option<PathBuf>, Vec<String>) {
+pub(crate) fn parse_path_flag(args: &[String]) -> (Option<PathBuf>, Vec<String>) {
     let mut path = None;
     let mut rest = Vec::new();
     let mut i = 0;
@@ -198,7 +204,7 @@ fn parse_path_flag(args: &[String]) -> (Option<PathBuf>, Vec<String>) {
 
 /// Resolve the working repo: explicit --path, or git toplevel of $PWD.
 /// On failure emits a JSON error and exits with code 2.
-fn resolve_repo(explicit: Option<PathBuf>, action: &'static str) -> PathBuf {
+pub(crate) fn resolve_repo(explicit: Option<PathBuf>, action: &'static str) -> PathBuf {
     let candidate = explicit.unwrap_or_else(|| {
         std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
     });
@@ -218,7 +224,7 @@ fn resolve_repo(explicit: Option<PathBuf>, action: &'static str) -> PathBuf {
     }
 }
 
-fn emit_ok(action: &'static str, message: impl Into<String>, data: Option<serde_json::Value>) {
+pub(crate) fn emit_ok(action: &'static str, message: impl Into<String>, data: Option<serde_json::Value>) {
     let mut response = ApiResponse::ok_msg(message).with_action(action);
     if let Some(d) = data {
         response.data = Some(d);
@@ -228,7 +234,7 @@ fn emit_ok(action: &'static str, message: impl Into<String>, data: Option<serde_
     }));
 }
 
-fn emit_err(action: &'static str, error: &str) {
+pub(crate) fn emit_err(action: &'static str, error: &str) {
     let response = ApiResponse::err(error).with_action(action);
     println!("{}", serde_json::to_string(&response).unwrap_or_else(|_| {
         r#"{"ok":false}"#.to_string()

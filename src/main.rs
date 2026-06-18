@@ -3,6 +3,7 @@ mod app;
 mod audit;
 mod cli;
 mod config;
+mod deploy;
 mod git;
 mod git_ops;
 mod theme;
