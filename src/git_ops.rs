@@ -81,6 +81,8 @@ pub fn mirror_push(path: &Path, branch: &str, remote_name: &str, url: &str) -> R
 }
 
 pub fn git_push_main(path: &Path) -> Result<(String, usize), String> {
+    // origin/main avant le push : borne basse des commits expédiés (TT3432).
+    let before = rev_parse(path, "origin/main");
     let output = Command::new("git")
         .args(["push", "origin", "main"])
         .current_dir(path)
@@ -88,6 +90,7 @@ pub fn git_push_main(path: &Path) -> Result<(String, usize), String> {
         .map_err(|e| format!("{}", e))?;
 
     if output.status.success() {
+        emit_ship_milestones(path, before.as_deref());
         let cleaned = cleanup_merged_branches(path);
         return Ok(("Push complete — intel transmitted".into(), cleaned));
     }
@@ -608,4 +611,39 @@ fn cleanup_merged_branches(path: &Path) -> usize {
         }
     }
     cleaned
+}
+
+fn rev_parse(path: &Path, rev: &str) -> Option<String> {
+    let out = Command::new("git").args(["rev-parse", rev]).current_dir(path).output().ok()?;
+    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// Jalon `ship` de la timeline /pilotage de Lortask (TT3432) : chaque task
+/// citée (`TT1234`) par un commit qui vient de partir sur origin/main est
+/// jalonnée via la CLI `titan`. Best effort et silencieux : sans `titan`, ou
+/// sur un projet hors Titan, le push n'en est pas affecté.
+fn emit_ship_milestones(path: &Path, before: Option<&str>) {
+    let Some(before) = before else { return };
+    let Ok(out) = Command::new("git")
+        .args(["log", "--format=%s", &format!("{before}..main")])
+        .current_dir(path)
+        .output()
+    else {
+        return;
+    };
+    let head = rev_parse(path, "main").unwrap_or_default();
+    let commit: String = head.chars().take(12).collect();
+    let tts: BTreeSet<String> = String::from_utf8_lossy(&out.stdout)
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|w| w.len() > 2 && w.starts_with("TT") && w[2..].chars().all(|c| c.is_ascii_digit()))
+        .map(str::to_string)
+        .collect();
+    for tt in tts {
+        let _ = Command::new("titan")
+            .args(["task", "milestone", &tt, "ship", "--commit", &commit])
+            .current_dir(path)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
 }
